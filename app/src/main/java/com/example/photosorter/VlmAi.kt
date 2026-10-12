@@ -31,6 +31,19 @@ object VlmAi {
             "folder: <folder name>\n" +
             "description: <one short sentence, max 12 words>"
 
+    /** Sort-tab prompt: topic folder + caption (no trip naming). */
+    const val SORT_PROMPT =
+        "File this photo from a personal gallery. EXIF hints: %s\n" +
+            "Pick a 1-3 word lowercase kebab-case folder for its main subject, e.g. beach, dog, food, " +
+            "documents, screenshots, new-york, birthday, products. Use other if nothing fits.\n" +
+            "Reply with ONLY two lines:\n" +
+            "folder: <folder name>\n" +
+            "description: <one short sentence, max 15 words>"
+
+    /** Typical answer length in tokens - used to estimate per-photo progress. */
+    const val TYPICAL_ANSWER_TOKENS = 24
+    const val MAX_TOKENS = 60
+
     val nativeAvailable: Boolean = runCatching { System.loadLibrary("vlm-ai") }.isSuccess
 
     @Volatile private var loaded = false
@@ -73,15 +86,33 @@ object VlmAi {
         return loaded
     }
 
-    /** Classifies one JPEG. Returns raw model text, or null on failure. */
-    suspend fun classify(jpeg: ByteArray, hints: String): String? {
+    /**
+     * Classifies one JPEG with [promptTemplate] (TRIP_PROMPT or SORT_PROMPT, `%s` = EXIF hints).
+     * Returns raw model text, or null on failure / abort.
+     */
+    suspend fun classify(jpeg: ByteArray, hints: String, promptTemplate: String = TRIP_PROMPT): String? {
         if (!loaded) return null
-        return withContext(Dispatchers.IO) { nativeClassify(jpeg, TRIP_PROMPT.format(hints), 60) }
+        return withContext(Dispatchers.IO) { nativeClassify(jpeg, promptTemplate.format(hints), MAX_TOKENS) }
+    }
+
+    /** (stage, tokens): stage 0 = idle, 1 = reading image, 2 = writing answer. */
+    fun progress(): Pair<Int, Int> {
+        if (!loaded) return 0 to 0
+        val v = runCatching { nativeProgress() }.getOrDefault(0)
+        return (v / 1000) to (v % 1000)
+    }
+
+    /** Interrupts the in-flight classify (Stop button). Safe to call anytime. */
+    fun abort() {
+        if (loaded) runCatching { nativeAbort() }
     }
 
     /** Parses the model's two-line answer into a folder + description. */
     fun parseOutput(raw: String): AiResult? {
-        val lines = raw.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        // tolerate markdown the model sometimes adds ("**folder:** x", "- folder: x")
+        val lines = raw.lineSequence()
+            .map { it.replace("**", "").trim().trimStart('-', '*', '`', ' ').trim() }
+            .filter { it.isNotEmpty() }.toList()
         if (lines.isEmpty()) return null
         var folder = ""
         var desc = ""
@@ -101,4 +132,6 @@ object VlmAi {
     private external fun nativeInit(modelPath: String, mmprojPath: String, nCtx: Int, nThreads: Int): Int
     private external fun nativeClassify(jpeg: ByteArray, innerPrompt: String, maxTokens: Int): String?
     private external fun nativeFree()
+    private external fun nativeProgress(): Int
+    private external fun nativeAbort()
 }

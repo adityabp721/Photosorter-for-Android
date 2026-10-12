@@ -6,6 +6,7 @@
 #include <jni.h>
 #include <android/log.h>
 
+#include <atomic>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -19,6 +20,16 @@ static llama_model * g_model = nullptr;
 static llama_context * g_lctx = nullptr;
 static mtmd_context * g_mctx = nullptr;
 static llama_sampler * g_smpl = nullptr;
+
+// Lock-free progress for the UI: stage 0 = idle, 1 = encoding image + prompt, 2 = writing answer.
+static std::atomic<int> g_stage{0};
+static std::atomic<int> g_tokens{0};
+// Set by nativeAbort() (Stop button); checked by llama's abort callback and the token loop.
+static std::atomic<bool> g_abort{false};
+
+static bool abort_cb(void *) { return g_abort.load(); }
+
+struct StageReset { ~StageReset() { g_stage = 0; } };
 
 static void free_all() {
     if (g_smpl) { llama_sampler_free(g_smpl); g_smpl = nullptr; }
@@ -59,6 +70,7 @@ Java_com_example_photosorter_VlmAi_nativeInit(JNIEnv * env, jclass, jstring mode
         env->ReleaseStringUTFChars(mmprojPath, ppath);
         return -2;
     }
+    llama_set_abort_callback(g_lctx, abort_cb, nullptr);
 
     mtmd_context_params mp = mtmd_context_params_default();
     mp.use_gpu = false;
@@ -92,6 +104,10 @@ extern "C" JNIEXPORT jstring JNICALL
 Java_com_example_photosorter_VlmAi_nativeClassify(JNIEnv * env, jclass, jbyteArray jpeg, jstring innerPrompt, jint maxTokens) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_lctx || !g_mctx || !g_smpl) return nullptr;
+    g_abort = false;
+    g_tokens = 0;
+    g_stage = 1;
+    StageReset stage_reset;
 
     const char * prompt_c = env->GetStringUTFChars(innerPrompt, nullptr);
     jsize len = env->GetArrayLength(jpeg);
@@ -134,10 +150,13 @@ Java_com_example_photosorter_VlmAi_nativeClassify(JNIEnv * env, jclass, jbyteArr
         return nullptr;
     }
 
+    g_stage = 2;
     std::string out;
     const llama_vocab * vocab = llama_model_get_vocab(g_model);
     int nmax = maxTokens > 0 ? maxTokens : 60;
     for (int i = 0; i < nmax; i++) {
+        if (g_abort) break;
+        g_tokens = i + 1;
         llama_token tok = llama_sampler_sample(g_smpl, g_lctx, -1);
         if (llama_vocab_is_eog(vocab, tok)) break;
         char buf[512];
@@ -160,7 +179,7 @@ Java_com_example_photosorter_VlmAi_nativeClassify(JNIEnv * env, jclass, jbyteArr
     mtmd_input_chunks_free(chunks);
     env->ReleaseStringUTFChars(innerPrompt, prompt_c);
 
-    if (out.empty()) return nullptr;
+    if (out.empty() || g_abort) return nullptr;
     return env->NewStringUTF(out.c_str());
 }
 
@@ -169,4 +188,17 @@ Java_com_example_photosorter_VlmAi_nativeFree(JNIEnv *, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);
     free_all();
     llama_backend_free();
+}
+
+// stage * 1000 + tokens generated so far (lock-free, safe to poll while a classify runs)
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_photosorter_VlmAi_nativeProgress(JNIEnv *, jclass) {
+    int t = g_tokens.load();
+    return g_stage.load() * 1000 + (t > 999 ? 999 : t);
+}
+
+// Asks the running classify (if any) to stop as soon as possible.
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_photosorter_VlmAi_nativeAbort(JNIEnv *, jclass) {
+    g_abort = true;
 }

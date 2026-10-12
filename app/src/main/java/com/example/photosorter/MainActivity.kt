@@ -1,12 +1,15 @@
 package com.example.photosorter
 
 import android.Manifest
-import android.content.Context
+import android.app.Activity
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
@@ -34,39 +38,80 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val model = appModel
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    MainScreen(this)
+                    MainScreen(model)
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        appModel.appVisible = true
+        appModel.refreshPermissions() // the user may have changed access in Settings
+        Notifications.cancelResult(this)
+    }
+
+    override fun onStop() {
+        appModel.appVisible = false
+        super.onStop()
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun MainScreen(ctx: Context) {
-    val model = remember { AppModel(ctx) }
-    val scope = rememberCoroutineScope()
+fun MainScreen(model: AppModel) {
+    val ctx = LocalContext.current
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { granted -> model.onPermissionsChanged(granted) }
+    val extraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { }
+    val deleteLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { res -> model.onDeleteResult(res.resultCode == Activity.RESULT_OK) }
+
+    // Users who granted photo access with an older version get asked for the newer
+    // permissions (photo locations, notifications) once per launch.
+    LaunchedEffect(model.permissions) {
+        if (!model.permissions) return@LaunchedEffect
+        val missing = buildList {
+            if (model.missingLocation) add(Manifest.permission.ACCESS_MEDIA_LOCATION)
+            if (Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (missing.isNotEmpty()) extraLauncher.launch(missing.toTypedArray())
+    }
+    // System "delete these photos?" confirmation - shown as soon as the app is visible.
+    val req = model.deleteRequest
+    LaunchedEffect(req, model.appVisible) {
+        if (req != null && model.appVisible) {
+            model.deleteRequest = null
+            runCatching { deleteLauncher.launch(IntentSenderRequest.Builder(req).build()) }
+                .onFailure { model.onDeleteResult(false) }
+        }
+    }
 
     Scaffold(topBar = { TopAppBar(title = { Text("PhotoSorter") }) }) { pad ->
         if (!model.permissions) {
@@ -84,9 +129,7 @@ fun MainScreen(ctx: Context) {
                             "It needs access to your photo library."
                 )
                 Spacer(modifier = Modifier.height(16.dp))
-                val code = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES
-                else Manifest.permission.READ_EXTERNAL_STORAGE
-                Button(onClick = { permLauncher.launch(arrayOf(code)) }) {
+                Button(onClick = { permLauncher.launch(model.permissionsToRequest()) }) {
                     Text("Allow photo access")
                 }
             }
@@ -96,23 +139,25 @@ fun MainScreen(ctx: Context) {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { model.tab = "sort" },
-                        enabled = !model.busy && !model.dupBusy && !model.tripBusy
-                    ) { Text("Sort & describe") }
-                    Button(
-                        onClick = { model.tab = "trips" },
-                        enabled = !model.busy && !model.dupBusy && !model.tripBusy
-                    ) { Text("Trips - group by trip") }
-                    Button(
-                        onClick = { model.tab = "dups" },
-                        enabled = !model.busy && !model.dupBusy && !model.tripBusy
-                    ) { Text("Duplicates - save storage") }
+                    TabButton("Sort & describe", model.tab == "sort") { model.tab = "sort" }
+                    TabButton("Trips - group by trip", model.tab == "trips") { model.tab = "trips" }
+                    TabButton("Duplicates - save storage", model.tab == "dups") { model.tab = "dups" }
                 }
+                if (model.partialAccess) {
+                    Text(
+                        "Limited access: PhotoSorter only sees the photos you selected. For a full sort, allow all photos.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    OutlinedButton(onClick = { permLauncher.launch(model.permissionsToRequest()) }) {
+                        Text("Change photo access")
+                    }
+                }
+                JobBar(model)
                 when (model.tab) {
                     "dups" -> DupsTab(model)
-                    "trips" -> TripsTab(model, scope, ctx)
-                    else -> SortTab(model, scope)
+                    "trips" -> TripsTab(model)
+                    else -> SortTab(model)
                 }
             }
         }
@@ -120,7 +165,71 @@ fun MainScreen(ctx: Context) {
 }
 
 @Composable
-private fun SortTab(model: AppModel, scope: CoroutineScope) {
+private fun TabButton(label: String, selected: Boolean, onClick: () -> Unit) {
+    if (selected) Button(onClick = onClick) { Text(label) }
+    else OutlinedButton(onClick = onClick) { Text(label) }
+}
+
+/** Overall progress of the running job (also mirrored in the notification). */
+@Composable
+private fun JobBar(model: AppModel) {
+    val job = model.job ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(job.title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f), maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+            val f = job.fraction
+            if (f != null) Text("${(f * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
+        }
+        val f = job.fraction
+        if (f != null) LinearProgressIndicator(progress = { f }, modifier = Modifier.fillMaxWidth())
+        else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        Text(
+            (if (job.total in 1 until 1_000_000 && !job.title.startsWith("Downloading")) "${job.done}/${job.total}  " else "") +
+                job.detail.ifEmpty { "Keeps running if you leave the app - see the notification." },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun ModeChooser(model: AppModel) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("AI mode:", style = MaterialTheme.typography.bodyMedium)
+        TabButton("Cloud: Gemini", model.mode == "cloud") { if (!model.anyBusy) model.mode = "cloud" }
+        TabButton("On-device", model.mode == "local") { if (!model.anyBusy) model.mode = "local" }
+    }
+}
+
+@Composable
+private fun LocalModelPanel(model: AppModel) {
+    val ctx = LocalContext.current
+    Text(VlmAi.statusText(ctx), style = MaterialTheme.typography.bodySmall)
+    if (!VlmAi.isReady(ctx)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { model.downloadVlmModel() },
+                enabled = !model.anyBusy
+            ) {
+                Text(if (model.vlmBusy) "Downloading..." else "Download local AI model (~3.3 GB)")
+            }
+            if (model.vlmBusy) OutlinedButton(onClick = { model.stopDownload() }) { Text("Pause") }
+        }
+    }
+    if (model.vlmStatus.isNotEmpty()) {
+        Text(model.vlmStatus, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SortTab(model: AppModel) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -131,16 +240,7 @@ private fun SortTab(model: AppModel, scope: CoroutineScope) {
                 modifier = Modifier.padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("AI mode:", style = MaterialTheme.typography.bodyMedium)
-                    if (model.mode == "cloud") Button(onClick = { model.mode = "cloud" }) { Text("Cloud: Gemini") }
-                    else OutlinedButton(onClick = { model.mode = "cloud" }) { Text("Cloud: Gemini") }
-                    if (model.mode == "local") Button(onClick = { model.mode = "local" }) { Text("On-device: offline") }
-                    else OutlinedButton(onClick = { model.mode = "local" }) { Text("On-device: offline") }
-                }
+                ModeChooser(model)
                 if (model.mode == "cloud") {
                     OutlinedTextField(
                         value = model.apiKey,
@@ -182,24 +282,31 @@ private fun SortTab(model: AppModel, scope: CoroutineScope) {
                     }
                 } else {
                     Text(
-                        "No key, no internet, no cost, nothing leaves the phone. Each photo is labeled on-device " +
-                                "(EfficientNet-Lite0, ~18 MB, bundled with the app) and the caption is built from the " +
-                                "detected objects + EXIF date/GPS. Captions are simpler than cloud mode - that is the " +
-                                "trade-off for staying offline.",
+                        "No key, no internet, no cost, nothing leaves the phone. With the on-device AI model " +
+                                "(Qwen2.5-VL) each photo gets a real caption in ~10-30 s; without it, the bundled " +
+                                "labeler (EfficientNet-Lite0) gives simple object-based captions.",
                         style = MaterialTheme.typography.bodySmall
                     )
+                    LocalModelPanel(model)
+                    OutlinedTextField(
+                        value = model.limitText,
+                        onValueChange = { model.limitText = it.filter(Char::isDigit) },
+                        label = { Text("N") },
+                        singleLine = true,
+                        modifier = Modifier.width(80.dp)
+                    )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = { scope.launch { model.scan() } },
-                        enabled = !model.busy
+                        onClick = { model.scan() },
+                        enabled = !model.anyBusy
                     ) { Text("Scan library") }
                     Button(
-                        onClick = { scope.launch { model.run(scope) } },
-                        enabled = !model.busy
+                        onClick = { model.runSort() },
+                        enabled = !model.anyBusy
                     ) { Text("AI-organize") }
                     Button(onClick = { model.stop() }, enabled = model.busy) { Text("Stop") }
-                    Button(onClick = { model.retryFailed() }, enabled = !model.busy) { Text("Retry errors") }
+                    Button(onClick = { model.retryFailed() }, enabled = !model.anyBusy) { Text("Retry errors") }
                 }
                 Text(model.status, style = MaterialTheme.typography.bodySmall, maxLines = 8)
                 Text(
@@ -220,7 +327,7 @@ private fun SortTab(model: AppModel, scope: CoroutineScope) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TripsTab(model: AppModel, scope: CoroutineScope, ctx: Context) {
+private fun TripsTab(model: AppModel) {
     var confirmMove by remember { mutableStateOf(false) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -239,16 +346,7 @@ private fun TripsTab(model: AppModel, scope: CoroutineScope, ctx: Context) {
                                 "batches: already-filed photos are skipped on re-runs.",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("AI mode:", style = MaterialTheme.typography.bodyMedium)
-                        if (model.mode == "cloud") Button(onClick = { model.mode = "cloud" }) { Text("Cloud: Gemini") }
-                        else OutlinedButton(onClick = { model.mode = "cloud" }) { Text("Cloud: Gemini") }
-                        if (model.mode == "local") Button(onClick = { model.mode = "local" }) { Text("On-device: offline") }
-                        else OutlinedButton(onClick = { model.mode = "local" }) { Text("On-device: offline") }
-                    }
+                    ModeChooser(model)
                     if (model.mode == "cloud") {
                         OutlinedTextField(
                             value = model.apiKey,
@@ -275,18 +373,7 @@ private fun TripsTab(model: AppModel, scope: CoroutineScope, ctx: Context) {
                                     "no key, no internet, nothing leaves the device. Each photo takes roughly 10-30 s to scan.",
                             style = MaterialTheme.typography.bodySmall
                         )
-                        Text(VlmAi.statusText(ctx), style = MaterialTheme.typography.bodySmall)
-                        if (!VlmAi.isReady(ctx)) {
-                            Button(
-                                onClick = { scope.launch { model.downloadVlmModel(scope) } },
-                                enabled = !model.vlmBusy && !model.tripBusy
-                            ) {
-                                Text(if (model.vlmBusy) "Downloading..." else "Download local AI model (~3.3 GB)")
-                            }
-                        }
-                        if (model.vlmStatus.isNotEmpty()) {
-                            Text(model.vlmStatus, style = MaterialTheme.typography.bodySmall)
-                        }
+                        LocalModelPanel(model)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
@@ -307,10 +394,8 @@ private fun TripsTab(model: AppModel, scope: CoroutineScope, ctx: Context) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text("File by:", style = MaterialTheme.typography.bodyMedium)
-                        if (model.tripMove) Button(onClick = { model.tripMove = true }) { Text("MOVE") }
-                        else OutlinedButton(onClick = { model.tripMove = true }) { Text("MOVE") }
-                        if (!model.tripMove) Button(onClick = { model.tripMove = false }) { Text("COPY") }
-                        else OutlinedButton(onClick = { model.tripMove = false }) { Text("COPY") }
+                        TabButton("COPY", !model.tripMove) { if (!model.tripBusy) model.tripMove = false }
+                        TabButton("MOVE", model.tripMove) { if (!model.tripBusy) model.tripMove = true }
                         Text(
                             if (model.tripMove) "deletes originals after a verified copy"
                             else "originals stay where they are",
@@ -321,8 +406,8 @@ private fun TripsTab(model: AppModel, scope: CoroutineScope, ctx: Context) {
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
-                            onClick = { confirmMove = false; scope.launch { model.scanTrips(scope) } },
-                            enabled = !model.tripBusy
+                            onClick = { confirmMove = false; model.scanTrips() },
+                            enabled = !model.anyBusy
                         ) { Text("AI scan photos") }
                         Button(
                             onClick = {
@@ -331,9 +416,9 @@ private fun TripsTab(model: AppModel, scope: CoroutineScope, ctx: Context) {
                                     return@Button
                                 }
                                 confirmMove = false
-                                scope.launch { model.organizeTrips(scope) }
+                                model.organizeTrips()
                             },
-                            enabled = !model.tripBusy && model.trips.isNotEmpty()
+                            enabled = !model.anyBusy && model.trips.isNotEmpty() && model.pendingDelete == null
                         ) {
                             Text(
                                 when {
@@ -346,11 +431,34 @@ private fun TripsTab(model: AppModel, scope: CoroutineScope, ctx: Context) {
                         Button(onClick = { model.stopTrips() }, enabled = model.tripBusy) { Text("Stop") }
                     }
                     Text(model.tripStatus, style = MaterialTheme.typography.bodySmall, maxLines = 8)
+                    val pd = model.pendingDelete
+                    if (pd != null && pd.purpose == "move") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { model.retryDelete() }, enabled = !model.anyBusy) {
+                                Text("Finish move: delete ${pd.photos.size} originals")
+                            }
+                            OutlinedButton(onClick = { model.cancelDelete() }) { Text("Keep both") }
+                        }
+                    }
                 }
             }
         }
-        items(model.trips, key = { it.id }) { trip ->
+        items(model.trips, key = { "t" + it.id }) { trip ->
             TripCard(trip)
+        }
+        if (model.tripRows.isNotEmpty()) {
+            item(key = "rowsHeader") {
+                val r = model.tripRows
+                Text(
+                    "Per photo (${r.size}): " +
+                        "${r.count { it.state is RowState.Scanned || it.state is RowState.Done }} done, " +
+                        "${r.count { it.state is RowState.Failed }} failed",
+                    style = MaterialTheme.typography.titleSmall
+                )
+            }
+            items(model.tripRows, key = { "r" + it.photo.id }) { row ->
+                RowView(row, onOpen = { model.openCopy(it.outPath) })
+            }
         }
     }
 }
@@ -391,7 +499,6 @@ private fun TripCard(trip: TripCluster) {
 
 @Composable
 private fun DupsTab(model: AppModel) {
-    val scope = rememberCoroutineScope()
     var confirmDelete by remember { mutableStateOf(false) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -415,9 +522,10 @@ private fun DupsTab(model: AppModel) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
-                        onClick = { scope.launch { model.scanDups() }; confirmDelete = false },
-                        enabled = !model.dupBusy
+                        onClick = { model.scanDups(); confirmDelete = false },
+                        enabled = !model.anyBusy
                     ) { Text("Scan for duplicates") }
+                    if (model.dupBusy) OutlinedButton(onClick = { model.stopDups() }) { Text("Stop") }
                     if (model.lastFreed > 0) {
                         Text(
                             "Freed this session: " + humanBytes(model.lastFreed),
@@ -432,12 +540,12 @@ private fun DupsTab(model: AppModel) {
                         onClick = {
                             if (confirmDelete) {
                                 confirmDelete = false
-                                scope.launch { model.deleteSelected() }
+                                model.deleteSelected()
                             } else {
                                 confirmDelete = true
                             }
                         },
-                        enabled = !model.dupBusy
+                        enabled = !model.anyBusy && model.pendingDelete == null
                     ) {
                         Text(
                             if (confirmDelete) "Press again to delete ${model.selected.size} photos (stays selected until you do)"
@@ -518,7 +626,8 @@ fun RowView(row: Row, onOpen: (DoneRec) -> Unit) {
                 Spacer(modifier = Modifier.width(8.dp))
                 when (s) {
                     is RowState.Todo -> Text("queued", color = MaterialTheme.colorScheme.outline)
-                    is RowState.Progress -> Text("${s.what}...", color = Color(0xFF1565C0))
+                    is RowState.Progress -> Text("${(s.fraction * 100).toInt()}%", color = Color(0xFF1565C0))
+                    is RowState.Scanned -> Text("scanned", color = Color(0xFF1565C0))
                     is RowState.Done -> Text("filed", color = Color(0xFF2E7D32))
                     is RowState.Cached -> Text("already filed", color = Color(0xFF2E7D32))
                     is RowState.Failed -> Text("error", color = MaterialTheme.colorScheme.error)
@@ -527,12 +636,18 @@ fun RowView(row: Row, onOpen: (DoneRec) -> Unit) {
             Text(
                 row.photo.dateLabel +
                         "  \u00B7  ${row.photo.width}x${row.photo.height}" +
-                        if (row.photo.latitude != null) "  \u00B7  has GPS" else "" +
+                        (if (row.photo.latitude != null) "  \u00B7  has GPS" else "") +
                         "  \u00B7  " + humanBytes(row.photo.sizeBytes),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             when (s) {
+                is RowState.Progress -> {
+                    LinearProgressIndicator(progress = { s.fraction }, modifier = Modifier.fillMaxWidth())
+                    Text("${s.what}...", style = MaterialTheme.typography.bodySmall, color = Color(0xFF1565C0))
+                }
+                is RowState.Scanned ->
+                    Text("-> ${s.ai.folder}/  \u2014  ${s.ai.description}", style = MaterialTheme.typography.bodyMedium)
                 is RowState.Done ->
                     Text("-> ${s.rec.folder}/  \u2014  ${s.rec.description}", style = MaterialTheme.typography.bodyMedium)
                 is RowState.Cached ->

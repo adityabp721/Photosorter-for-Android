@@ -25,6 +25,7 @@ object LocalAi {
 
     private val loadMutex = Mutex()
     private var model: ImageClassifier? = null
+    private val classifyLock = Any()
 
     /** folder rules: (folder name, keyword set matched against lowercased labels) */
     private val FOLDER_RULES: List<Pair<String, Set<String>>> = listOf(
@@ -44,7 +45,8 @@ object LocalAi {
         withContext(Dispatchers.IO) {
             val clf = ensureModel(ctx)
             ArrayList<Pair<String, Float>>(4).apply {
-                clf.classify(BitmapImageBuilder(bitmap).build())
+                // ImageClassifier is not thread-safe; callers run up to 3 photos in parallel
+                synchronized(classifyLock) { clf.classify(BitmapImageBuilder(bitmap).build()) }
                     .classificationResult().classifications()
                     .flatMap { it.categories() }.take(4)
                     .forEach { add(it.categoryName() to it.score()) }

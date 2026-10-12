@@ -58,7 +58,10 @@ object Organizer {
         }
     }
 
-    fun saveIndex(ctx: Context, index: Map<Long, DoneRec>) {
+    private val saveLock = Any()
+
+    /** Writes the index atomically (temp file + rename) so a crash mid-write can't corrupt it. */
+    fun saveIndex(ctx: Context, index: Map<Long, DoneRec>): Unit = synchronized(saveLock) {
         try {
             val o = JSONObject()
             index.forEach { (k, v) ->
@@ -71,7 +74,12 @@ object Organizer {
                         .put("ts", v.ts),
                 )
             }
-            File(ctx.filesDir, INDEX_FILE).writeText(o.toString(1))
+            val tmp = File(ctx.filesDir, "$INDEX_FILE.tmp")
+            tmp.writeText(o.toString())
+            if (!tmp.renameTo(File(ctx.filesDir, INDEX_FILE))) {
+                File(ctx.filesDir, INDEX_FILE).writeText(o.toString())
+                tmp.delete()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "failed to save index", e)
         }
@@ -85,17 +93,12 @@ object Organizer {
         photo: Photo,
         ai: AiResult,
     ): DoneRec {
-        val name = uniqueName(resolver, ai.folder, photo.title)
-        val outPath = if (Build.VERSION.SDK_INT >= 29) {
-            copyViaMediaStore(resolver, photo, ai.folder, name)
-        } else {
-            copyViaFile(ctx, resolver, photo, ai.folder, name)
-        }
-        writeSidecar(ctx, resolver, photo, ai.folder, name, ai.description)
-        setMediaDescription(resolver, ai.folder, name, ai.description)
-        tryExifComment(ctx, resolver, ai.folder, name, ai.description)
-        val rec = DoneRec(ai.folder, ai.description, outPath, System.currentTimeMillis())
-        Log.i(TAG, "filed ${photo.title} -> $outPath :: ${ai.description}")
+        val copy = copyInto(ctx, resolver, photo, ai.folder)
+        writeSidecar(ctx, resolver, photo, ai.folder, copy.name, ai.description)
+        setMediaDescription(resolver, copy.uri, ai.description)
+        tryExifComment(ctx, resolver, copy.uri, copy.name, ai.description)
+        val rec = DoneRec(ai.folder, ai.description, copy.path, System.currentTimeMillis())
+        Log.i(TAG, "filed ${photo.title} -> ${copy.path} :: ${ai.description}")
         return rec
     }
 
@@ -110,37 +113,28 @@ object Organizer {
     }
 
     /**
-     * MOVES a photo into [folder]: copies it there, verifies the copy's size, then deletes the
-     * original. If verification or deletion fails, the original is left in place and an error is
-     * thrown (a failed delete can never lose data - worst case a duplicate remains).
+     * Step 1 of a MOVE: checks that the copy in [rec] has the same size as the original. On a
+     * mismatch the copy is removed and an error is thrown, so the original is never deleted
+     * against a bad copy. The originals are deleted afterwards in one batch (Android 11+ needs
+     * a single system confirmation for photos the app doesn't own).
      */
-    fun moveToFolder(
-        ctx: Context,
-        resolver: ContentResolver,
-        photo: Photo,
-        folder: String,
-        summary: String,
-    ): DoneRec {
-        val rec = copyToFolder(ctx, resolver, photo, folder, summary)
-        if (photo.sizeBytes > 0) {
-            val copyUri = querySharedFile(resolver, folder, File(rec.outPath).name)
-                ?: throw IllegalStateException("Copied file not found after move - original kept in place")
-            val copiedSize = resolver.query(
-                copyUri, arrayOf(MediaStore.MediaColumns.SIZE), null, null, null
-            )?.use { c -> if (c.moveToFirst()) c.getLong(0) else -1L } ?: -1L
-            if (copiedSize != photo.sizeBytes) {
-                try { resolver.delete(copyUri, null, null) } catch (_: Exception) {}
+    fun verifyCopy(resolver: ContentResolver, photo: Photo, rec: DoneRec) {
+        if (photo.sizeBytes <= 0) return
+        val name = File(rec.outPath).name
+        val copyUri = querySharedFile(resolver, rec.folder, name)
+            ?: if (Build.VERSION.SDK_INT < 29) {
+                val f = File(rec.outPath)
+                if (f.length() == photo.sizeBytes) return
+                f.delete()
                 throw IllegalStateException("Copy verification failed (size mismatch) - original kept in place")
-            }
+            } else throw IllegalStateException("Copied file not found - original kept in place")
+        val copiedSize = resolver.query(
+            copyUri, arrayOf(MediaStore.MediaColumns.SIZE), null, null, null
+        )?.use { c -> if (c.moveToFirst()) c.getLong(0) else -1L } ?: -1L
+        if (copiedSize != photo.sizeBytes) {
+            try { resolver.delete(copyUri, null, null) } catch (_: Exception) {}
+            throw IllegalStateException("Copy verification failed (size mismatch) - original kept in place")
         }
-        val deleted = resolver.delete(photo.uri, null, null)
-        if (deleted <= 0) {
-            throw IllegalStateException(
-                "Copied to ${rec.outPath} but the original could not be deleted - remove it manually in your Photos app"
-            )
-        }
-        Log.i(TAG, "moved ${photo.title} -> ${rec.outPath}")
-        return rec
     }
 
     /**
@@ -154,26 +148,32 @@ object Organizer {
         folder: String,
         summary: String,
     ): DoneRec {
-        val name = uniqueName(resolver, folder, photo.title)
-        val outPath = if (Build.VERSION.SDK_INT >= 29) {
-            copyViaMediaStore(resolver, photo, folder, name)
-        } else {
-            copyViaFile(ctx, resolver, photo, folder, name)
-        }
-        writeSidecar(ctx, resolver, photo, folder, name, summary)
-        setMediaDescription(resolver, folder, name, summary)
-        val rec = DoneRec(folder, summary, outPath, System.currentTimeMillis())
-        Log.i(TAG, "filed ${photo.title} -> $outPath (trip)")
+        val copy = copyInto(ctx, resolver, photo, folder)
+        writeSidecar(ctx, resolver, photo, folder, copy.name, summary)
+        setMediaDescription(resolver, copy.uri, summary)
+        val rec = DoneRec(folder, summary, copy.path, System.currentTimeMillis())
+        Log.i(TAG, "filed ${photo.title} -> ${copy.path} (trip)")
         return rec
     }
 
-    private fun copyViaMediaStore(resolver: ContentResolver, photo: Photo, folder: String, name: String): String {
+    /** A finished copy: its MediaStore uri (null before Android 10), final file name and path. */
+    private class Copy(val uri: Uri?, val name: String, val path: String)
+
+    private fun copyInto(ctx: Context, resolver: ContentResolver, photo: Photo, folder: String): Copy {
+        val name = uniqueName(resolver, folder, photo.title)
+        return if (Build.VERSION.SDK_INT >= 29) copyViaMediaStore(resolver, photo, folder, name)
+        else copyViaFile(ctx, resolver, photo, folder, name)
+    }
+
+    private fun copyViaMediaStore(resolver: ContentResolver, photo: Photo, folder: String, name: String): Copy {
         val dir = "$BASE/$folder"
         val cv = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
             put(MediaStore.Images.Media.MIME_TYPE, photo.mime)
             put(MediaStore.MediaColumns.RELATIVE_PATH, dir)
             put(MediaStore.MediaColumns.IS_PENDING, 1)
+            // keep the original capture time so copies don't jump to "today" in the gallery
+            if (photo.dateTakenMs > 0) put(MediaStore.Images.Media.DATE_TAKEN, photo.dateTakenMs)
         }
         val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv)
             ?: throw IllegalStateException("MediaStore insert failed")
@@ -186,7 +186,10 @@ object Organizer {
                 input.use { it.copyTo(o) }
             }
             resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
-            return "$dir/$name"
+            // MediaStore may have renamed the file if a parallel copy took the same name
+            val actual = resolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: name
+            return Copy(uri, actual, "$dir/$actual")
         } catch (e: Exception) {
             try { resolver.delete(uri, null, null) } catch (_: Exception) {}
             throw e
@@ -194,16 +197,16 @@ object Organizer {
     }
 
     @Suppress("DEPRECATION")
-    private fun copyViaFile(ctx: Context, resolver: ContentResolver, photo: Photo, folder: String, name: String): String {
+    private fun copyViaFile(ctx: Context, resolver: ContentResolver, photo: Photo, folder: String, name: String): Copy {
         val sub = "PhotoSorter/$folder"
         val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), sub)
         dir.mkdirs()
         val f = File(dir, name)
         val input = resolver.openInputStream(photo.uri)
             ?: throw IllegalStateException("Cannot open input stream")
-        input.use { it.copyTo(f.outputStream()) }
+        input.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
         MediaScannerConnection.scanFile(ctx, arrayOf(f.absolutePath), null, null)
-        return f.absolutePath
+        return Copy(null, name, f.absolutePath)
     }
 
     private fun uniqueName(resolver: ContentResolver, folder: String, title: String): String {
@@ -280,10 +283,9 @@ object Organizer {
     }
 
     /** Best-effort: stores the description in the copy's MediaStore "description" column. */
-    private fun setMediaDescription(resolver: ContentResolver, folder: String, name: String, description: String) {
-        if (Build.VERSION.SDK_INT < 29) return
+    private fun setMediaDescription(resolver: ContentResolver, uri: Uri?, description: String) {
+        if (Build.VERSION.SDK_INT < 29 || uri == null) return
         try {
-            val uri = querySharedFile(resolver, folder, name) ?: return
             resolver.update(
                 uri,
                 ContentValues().apply { put(MediaStore.Images.Media.DESCRIPTION, description) },
@@ -299,10 +301,10 @@ object Organizer {
      * Scoped storage blocks direct file paths, so the image round-trips through a
      * temp file and is written back via the content stream.
      */
-    private fun tryExifComment(ctx: Context, resolver: ContentResolver, folder: String, name: String, description: String) {
-        val tmp = File(ctx.cacheDir, "exif_tmp_$name")
+    private fun tryExifComment(ctx: Context, resolver: ContentResolver, uri: Uri?, name: String, description: String) {
+        if (uri == null) return
+        val tmp = File(ctx.cacheDir, "exif_tmp_${System.nanoTime()}_$name")
         try {
-            val uri = querySharedFile(resolver, folder, name) ?: return
             resolver.openInputStream(uri)?.use { input ->
                 tmp.outputStream().use { input.copyTo(it) }
             } ?: return
@@ -310,7 +312,8 @@ object Organizer {
             exif.setAttribute(ExifInterface.TAG_USER_COMMENT, "Unicode=$description")
             exif.saveAttributes()
             tmp.inputStream().use { input ->
-                resolver.openOutputStream(uri)?.use { input.copyTo(it) } ?: Unit
+                // "wt" truncates - plain "w" can leave stale trailing bytes on some devices
+                resolver.openOutputStream(uri, "wt")?.use { input.copyTo(it) } ?: Unit
             }
         } catch (e: Exception) {
             Log.w(TAG, "EXIF comment skipped", e)

@@ -13,6 +13,9 @@ import java.util.concurrent.TimeUnit
 
 data class AiResult(val folder: String, val description: String)
 
+/** Rate limit / daily quota still exhausted after retries - the caller should stop the batch. */
+class QuotaExceededException(msg: String) : Exception(msg)
+
 object Gemini {
 
     const val DEFAULT_MODEL = "gemini-2.5-flash"
@@ -71,12 +74,56 @@ object Gemini {
         parseBody(first)
     }
 
+    /** Gemini 2.5 Flash thinks by default and thinking tokens count against maxOutputTokens. */
+    private fun canDisableThinking(model: String) = model.startsWith("gemini-2.5-flash")
+
     private fun looksLikeToolUnsupportedError(resp: HttpResp): Boolean =
         resp.code != 200 &&
             ("google_search" in resp.body ||
                 ("tool" in resp.body.lowercase() && "invalid" in resp.body.lowercase()))
 
-    private fun call(
+    /** One request with retries on rate limits (429) and transient server errors (5xx). */
+    private suspend fun call(
+        apiKey: String,
+        model: String,
+        dataB64s: List<String>,
+        prompt: String,
+        hints: String,
+        useWebSearch: Boolean
+    ): HttpResp {
+        var attempt = 0
+        while (true) {
+            val r = try {
+                callOnce(apiKey, model, dataB64s, prompt, hints, useWebSearch)
+            } catch (e: java.io.IOException) {
+                if (attempt >= 2) throw IllegalStateException("Network error: ${e.message ?: e.javaClass.simpleName}")
+                HttpResp(-1, e.message ?: "")
+            }
+            val retryable = r.code == 429 || r.code == -1 || r.code in 500..599
+            if (!retryable) return r
+            if (attempt >= 3) {
+                if (r.code == 429) {
+                    throw QuotaExceededException(
+                        "Gemini quota/rate limit reached" +
+                            (if ("PerDay" in r.body || "per day" in r.body.lowercase()) " (daily limit)" else "") +
+                            ". Try again later, use a paid key, or switch to on-device mode."
+                    )
+                }
+                return r
+            }
+            kotlinx.coroutines.delay(retryDelayMs(r.body, attempt))
+            attempt++
+        }
+    }
+
+    /** Honors the server's "retryDelay": "17s" hint when present, else 4 s, 8 s, 16 s backoff. */
+    private fun retryDelayMs(body: String, attempt: Int): Long {
+        val hinted = Regex("\"retryDelay\"\\s*:\\s*\"(\\d+)(?:\\.\\d+)?s\"").find(body)
+            ?.groupValues?.get(1)?.toLongOrNull()
+        return ((hinted ?: (4L shl attempt)).coerceIn(1, 60)) * 1000L
+    }
+
+    private fun callOnce(
         apiKey: String,
         model: String,
         dataB64s: List<String>,
@@ -95,21 +142,23 @@ object Gemini {
             .put("contents", JSONArray().put(JSONObject().put("parts", parts)))
             .put("systemInstruction", JSONObject().put("parts", JSONArray()
                 .put(JSONObject().put("text", "You are a photo filing assistant. Reply with only the JSON object."))))
-            .put("generationConfig", JSONObject()
-                .put("temperature", 0.2)
-                .put("maxOutputTokens", 150)
-                .put("responseMimeType", "application/json"))
+        val gen = JSONObject()
+            .put("temperature", 0.2)
+            .put("maxOutputTokens", 1024)
+        // JSON mode can't be combined with tools (the API rejects it) - the reply is still
+        // parsed out of the text below.
+        if (!useWebSearch) gen.put("responseMimeType", "application/json")
+        if (canDisableThinking(model)) gen.put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+        body.put("generationConfig", gen)
         if (useWebSearch) {
             // Lets the model do a lightweight live search to identify landmarks, people, products.
             body.put("tools", JSONArray().put(JSONObject().put("google_search", JSONObject())))
         }
-        val url = Uri.parse(URL.format(model))
-            .buildUpon()
-            .appendQueryParameter("key", apiKey.trim())
-            .build()
-            .toString()
+        val url = Uri.parse(URL.format(Uri.encode(model))).toString()
         val req = Request.Builder()
             .url(url)
+            // header instead of ?key= so the key never lands in URL logs
+            .header("x-goog-api-key", apiKey.trim())
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
         return http.newCall(req).execute().use { r ->
@@ -130,9 +179,11 @@ object Gemini {
         if (candArray == null || candArray.length() == 0) {
             throw IllegalStateException("No candidates: ${resp.body.take(240)}")
         }
-        val parts = candArray.getJSONObject(0)
-            .getJSONObject("content")
-            .getJSONArray("parts")
+        val cand = candArray.getJSONObject(0)
+        val parts = cand.optJSONObject("content")?.optJSONArray("parts")
+            ?: throw IllegalStateException(
+                "Empty answer (finishReason: ${cand.optString("finishReason", "unknown")})"
+            )
         var out = ""
         for (i in 0 until parts.length()) {
             out += parts.optJSONObject(i)?.optString("text") ?: ""

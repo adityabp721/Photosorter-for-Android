@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import android.util.Base64
 import androidx.exifinterface.media.ExifInterface
 import java.io.ByteArrayOutputStream
@@ -80,9 +82,12 @@ object ImageTools {
      * Reads GPS from the photo's EXIF (MediaStore has no reliable lat/lon columns for images).
      * Returns [latitude, longitude] or null when absent/unreadable.
      */
-    fun gpsFor(resolver: ContentResolver, uri: Uri): DoubleArray? {
+    fun gpsFor(resolver: ContentResolver, uri: Uri, original: Boolean): DoubleArray? {
         return try {
-            val exif = resolver.openInputStream(uri)?.use { ExifInterface(it) } ?: return null
+            // Android 10+ strips location from EXIF unless the app holds ACCESS_MEDIA_LOCATION
+            // and asks for the original bytes
+            val src = if (original && Build.VERSION.SDK_INT >= 29) MediaStore.setRequireOriginal(uri) else uri
+            val exif = resolver.openInputStream(src)?.use { ExifInterface(it) } ?: return null
             var lat = parseGpsRationals(exif.getAttribute(ExifInterface.TAG_GPS_LATITUDE)) ?: return null
             var lon = parseGpsRationals(exif.getAttribute(ExifInterface.TAG_GPS_LONGITUDE)) ?: return null
             if (exif.getAttribute(ExifInterface.TAG_GPS_LATITUDE_REF) == "S") lat = -lat

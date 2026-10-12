@@ -117,11 +117,12 @@ fun humanBytes(b: Long): String = when {
 
 /**
  * Full-library duplicate scan: exact SHA-256 first, then perceptual hash for the rest.
- * [progress] is suspend and may hop threads - AppModel uses it to update the UI.
+ * Returns early (empty) when [stopped] turns true. [progress] is suspend and may hop threads - AppModel uses it to update the UI.
  */
 suspend fun findDuplicates(
     resolver: ContentResolver,
     allPhotos: List<Photo>,
+    stopped: () -> Boolean,
     progress: suspend (done: Int, total: Int, phase: String) -> Unit,
 ): List<DupCluster> = withContext(Dispatchers.IO) {
     val photos = allPhotos.filter { it.mime.lowercase().startsWith("image/") }.take(20000)
@@ -129,6 +130,7 @@ suspend fun findDuplicates(
     // ---- pass 1: byte-identical ----
     val byHash = LinkedHashMap<String, MutableList<Photo>>()
     for ((i, p) in photos.withIndex()) {
+        if (stopped()) return@withContext emptyList()
         val h = try {
             DupHash.sha256(resolver, p.uri)
         } catch (e: Exception) {
@@ -150,6 +152,7 @@ suspend fun findDuplicates(
     val leaders = ArrayList<Pair<Long, Int>>()      // (hash, index into nearClusters)
     val near = ArrayList<MutableList<Photo>>()
     for ((i, p) in candidates.withIndex()) {
+        if (stopped()) return@withContext emptyList()
         val h: Long = try {
             val bmp = ImageTools.decodeSmall(resolver, p.uri, 256)
             val hv = DupHash.perceptualHash(bmp)
