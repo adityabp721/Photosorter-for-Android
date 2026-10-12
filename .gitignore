@@ -1,0 +1,10 @@
+build/
+.gradle/
+.cxx/
+.idea/
+local.properties
+native/models/
+native/llama.cpp/
+native/vlm/build-host/
+*.log
+.qwen-logs/
