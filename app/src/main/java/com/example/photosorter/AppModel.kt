@@ -81,10 +81,7 @@ class AppModel(app: Context) {
     var modelName: String by mutableStateOf(sp.getString("model", Gemini.DEFAULT_MODEL) ?: Gemini.DEFAULT_MODEL)
     var limitText: String by mutableStateOf("50")
     var useWebSearch: Boolean by mutableStateOf(sp.getBoolean("search", true))
-    var status: String by mutableStateOf(
-        "Choose cloud or on-device AI, scan the library, then press AI-organize. " +
-            "On-device mode needs no key and works offline."
-    )
+    var status: String by mutableStateOf("")
     var busy: Boolean by mutableStateOf(false)
     var permissions: Boolean by mutableStateOf(false)
     var partialAccess: Boolean by mutableStateOf(false)
@@ -106,12 +103,7 @@ class AppModel(app: Context) {
     // ---- trips ----
 
     var tripBusy: Boolean by mutableStateOf(false)
-    var tripStatus: String by mutableStateOf(
-        "The AI scans EACH photo (image + date + GPS) and files it into a folder like japan-trip or " +
-            "swiss-trip; non-travel photos get category folders. Then Organize moves (or copies) the " +
-            "photos into Pictures/PhotoSorter/<folder>/. Move mode deletes the originals after a " +
-            "verified copy."
-    )
+    var tripStatus: String by mutableStateOf("")
     var tripLimitText: String by mutableStateOf("200")
     var tripMove: Boolean by mutableStateOf(sp.getBoolean("tripmove", false))
     private val _trips = mutableStateOf<List<TripCluster>>(emptyList())
@@ -127,9 +119,7 @@ class AppModel(app: Context) {
     // ---- duplicates ----
 
     var dupBusy: Boolean by mutableStateOf(false)
-    var dupStatus: String by mutableStateOf(
-        "Scanning checks ALL photos for exact and near-identical copies (re-saves, crops). Nothing is deleted until you press Delete."
-    )
+    var dupStatus: String by mutableStateOf("")
     var lastFreed: Long by mutableStateOf(0L)
     private val _clusters = mutableStateOf<List<DupCluster>>(emptyList())
     val clusters: List<DupCluster> get() = _clusters.value
@@ -495,7 +485,7 @@ class AppModel(app: Context) {
             val left = rows.count { it.state is RowState.Todo }
             val summary = when {
                 quotaMsg != null -> "$quotaMsg Filed $filed so far; $left left for later."
-                stopping -> "Stopped after filing $filed. Press AI-organize again to continue with the remaining $left."
+                stopping -> "Stopped after filing $filed. Press Organize again to continue with the remaining $left."
                 else -> "Finished: filed $filed photos" + if (failed > 0) ", $failed failed - press Retry errors." else "."
             }
             status = summary
@@ -511,7 +501,7 @@ class AppModel(app: Context) {
 
     fun retryFailed() {
         rows.forEach { if (it.state is RowState.Failed) it.state = RowState.Todo }
-        status = "Failed photos reset to queued. Press AI-organize to retry."
+        status = "Failed photos are queued again - press Organize to retry."
     }
 
     fun openCopy(outPath: String) {
@@ -579,7 +569,7 @@ class AppModel(app: Context) {
                     onMain {
                         row.state = RowState.Scanned(ai)
                         done++
-                        tripStatus = "AI scan: ${done + failed}/${todo.size} -> ${ai.folder}"
+                        tripStatus = "Scanned ${done + failed} of ${todo.size} - last: ${ai.folder}"
                         jobProgress((done + failed).toLong(), todo.size.toLong(), "${row.photo.title} -> ${ai.folder}")
                     }
                 } catch (e: StoppedException) {
@@ -607,7 +597,7 @@ class AppModel(app: Context) {
             if (tripStopping) title = "Trip scan stopped"
             summary = (quotaMsg?.let { "$it " } ?: "") +
                 "Scanned $scanned/${photos.size} photos into ${groups.size} folders." +
-                (if (missing > 0) " $missing not scanned yet - press AI scan again to do just those." else "") +
+                (if (missing > 0) " $missing not scanned yet - press Scan photos again to do just those." else "") +
                 (if (tripMove) " Organize will MOVE them (originals get deleted)."
                 else " Organize will COPY them (originals stay put).")
         } catch (e: CancellationException) {
@@ -627,7 +617,7 @@ class AppModel(app: Context) {
         if (anyBusy) return@launch
         val list = _trips.value
         if (list.isEmpty()) {
-            tripStatus = "No groups yet - press AI scan first."
+            tripStatus = "No groups yet - press Scan photos first."
             return@launch
         }
         if (pendingDelete != null) {
@@ -934,16 +924,16 @@ class AppModel(app: Context) {
         dupBusy = true
         dupStopping = false
         beginJob("Scanning for duplicates")
-        dupStatus = "Reading photo library..."
+        dupStatus = ""
         try {
             val photos = withContext(Dispatchers.IO) { repo.all() }
-            dupStatus = "Checking ${photos.size} photos - byte-identical pass first, then near-duplicate pass. On-device, free."
+            dupStatus = ""
             val found = findDuplicates(resolver, photos, { dupStopping }) { done, total, phase ->
                 onMain {
-                    val label = if (phase == "hashing") "Step 1/2: byte-identical copies"
-                    else "Step 2/2: comparing looks (near-duplicates)"
-                    dupStatus = "$label: $done/$total"
-                    job = job?.copy(title = "Duplicates - $label", done = done.toLong(), total = total.toLong(), detail = "")
+                    val label = if (phase == "hashing") "Step 1 of 2: exact copies"
+                    else "Step 2 of 2: comparing looks"
+                    dupStatus = ""
+                    job = job?.copy(title = "Finding duplicates", done = done.toLong(), total = total.toLong(), detail = label)
                 }
             }
             if (dupStopping) {
