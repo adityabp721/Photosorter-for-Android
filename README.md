@@ -12,9 +12,10 @@ Three tools in one app:
       into one folder ("japan-trip" / "japan" → same group),
    3. you review the groups, then press **Move** or **Copy**:
       - *Copy* — files a copy into `Pictures/PhotoSorter/<folder>/`, originals stay put.
-      - *Move* — copies first, **verifies the copy's size**, then deletes the original; requires a
-        free-space check and a second confirmation press. A failed delete can never lose data
-        (worst case: a duplicate remains). On Android 14/15 your phone may confirm each deletion.
+      - *Move* — copies everything first and **verifies each copy's size**; then Android asks
+        once ("Allow PhotoSorter to delete N photos?") to delete the originals. If you deny or the
+        app is closed, the move can be finished later from the Trips tab ("Finish move"), or you
+        can keep both. A failed copy never deletes its original.
 
    Already-filed photos are skipped (shared index with tab 2), so you can run the scan in batches
    across days to stay within API quotas. On-device mode can only sort by content categories —
@@ -32,10 +33,20 @@ Three tools in one app:
    reorganizing other apps' shared files, and copying is safer than moving.
 
 3. **Duplicates - save storage** — scans the *entire* library on-device (no cloud, no key):
-   a byte-exact pass (SHA-256) plus a perceptual-hash pass that catches re-saves, crops and
-   re-edits. Groups are shown with per-photo keep/delete switches; deleting goes through
-   `MediaStore` and Android 14/15 additionally shows its own system confirmations.
-   Nothing is deleted until you press the button twice.
+   a byte-exact pass (SHA-256, only for files of equal size) plus a perceptual-hash pass over
+   system thumbnails that finds look-alikes (bursts, edits, re-saves, RAW+JPEG). ~21k photos take
+   under 2 minutes. Only **exact copies** are pre-selected; look-alike groups are for review
+   ("Select look-alikes too" if you want them), and RAW files are never auto-selected. Deleting
+   goes through one system confirmation. Nothing is deleted until you press the button twice.
+
+## Background runs & progress
+
+- Every job (sort, trip scan, organize, duplicate scan, model download) keeps running when you
+  leave the app: a foreground service shows a notification with a progress bar and a **Stop**
+  button, and a "finished" notification is posted if the app isn't open.
+- Each photo has its own progress bar (Sort tab and the per-photo list on the Trips tab), plus an
+  overall bar at the top. On-device steps without real progress are estimated from earlier photos
+  and show elapsed seconds.
 
 ## AI modes
 
@@ -72,20 +83,22 @@ files are missing - it only produces content categories, not place names.
 ## Setup
 
 1. Open this folder in Android Studio (File → Open → pick the `photosorter` folder).
-2. If it complains the Gradle wrapper is missing: run `gradle wrapper --gradle-version 8.9` once in
-   the project root (any Gradle install), or copy `gradlew`, `gradlew.bat` and `gradle/wrapper/`
-   from any recent Android project into this folder.
-3. For on-device mode: download `labeler.tflite` into `app/src/main/assets/` (URL above).
-4. Run on a device/emulator.
+2. Build from the command line with `./gradlew assembleDebug`; unit tests: `./gradlew testDebugUnitTest`.
+   The native llama.cpp code is always compiled optimized (`-DCMAKE_BUILD_TYPE=Release`) - at the
+   Debug default (-O0) a single photo took minutes.
+3. For on-device mode: `labeler.tflite` is bundled in `app/src/main/assets/`.
+4. Run on a device/emulator (arm64).
 5. In the app: grant photo access, pick the tab.
 
 ## Notes on deletion & permissions
 
-- Deleting uses `ContentResolver.delete()` on MediaStore URIs with the photo permission you grant.
-  On Android 14/15 the OS also shows its own "delete this photo?" dialog for third-party apps.
-- Trips "Move" mode deletes originals too - but only per-photo, immediately after a size-verified
-  copy exists in the target folder, and only after you press the confirm button twice. If a delete
-  ever fails, the original is left in place and the error is shown (no data loss, at worst a dup).
+- On Android 11+ deleting uses `MediaStore.createDeleteRequest` (one system dialog per batch of up
+  to 1000 photos); on Android 8-10 the app deletes directly with its storage permission.
+- Trips "Move" mode deletes originals only after every copy is size-verified and you pressed the
+  confirm button twice and allowed the system dialog. Unfinished moves are remembered across restarts.
+- Photo locations: Android 10+ hides GPS in EXIF unless the app has "photo location" access
+  (`ACCESS_MEDIA_LOCATION`, requested with photo access) - the Trips tab relies on it.
+- The app's own copies in `Pictures/PhotoSorter/` are excluded from Sort/Trips scans.
 - If you granted *partial* photo access ("Select photos"), the app can only see — and clean up —
   the selected subset. Use "Allow access to all photos" for a full cleanup.
 - Saved-space estimates come from `MediaStore.SIZE`; if a file's size reads as 0 you'll see
@@ -113,8 +126,11 @@ files are missing - it only produces content categories, not place names.
 
 ```
 app/src/main/java/com/example/photosorter/
+  PhotoSorterApp.kt Application: one AppModel per process (jobs survive the activity)
+  WorkService.kt    foreground service + wake lock while a job runs, progress notification
+  Notifications.kt  channels, progress/result notifications, JobProgress
   MainActivity.kt   Compose UI (three tabs: Sort & describe | Trips | Duplicates)
-  AppModel.kt       state, permissions, job orchestration (max 3 concurrent), delete flow
+  AppModel.kt       state, permissions, job orchestration (worker pool), per-photo progress, delete flow
   PhotoRepo.kt      MediaStore queries (recent N + whole library with sizes)
   Trips.kt          folder grouping + AI answer normalization ("japan-trip"/"japan" -> one group)
   Gemini.kt         cloud: per-photo vision classification (Sort prompt + Trips prompt), optional google_search
@@ -132,5 +148,4 @@ native/llama.cpp        pinned llama.cpp checkout (built for arm64-v8a by the ND
 
 - Better offline captions: small VLM (Gemma 3n E4B / LLaVA 7B Q4 GGUF via llama.cpp) behind `LocalAi.kt`.
 - Blur / low-quality filter as a third "safe to delete" category; screenshots-only category.
-- Move (delete original) via SAF, background batching via WorkManager.
 - Secure key storage (EncryptedSharedPreferences), i18n, portrait lock during a run.
