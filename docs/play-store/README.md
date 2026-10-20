@@ -10,7 +10,7 @@ item against the current Play Console help when you submit.
 | `../../app/build/outputs/bundle/release/app-release.aab` | Upload to Play (rebuild with `./gradlew bundleRelease`) |
 | `icon-512.png` | Store icon, 512 x 512 |
 | `feature-graphic-1024x500.jpg` | Feature graphic |
-| `screenshots/` | Phone screenshots (see the note there before using) |
+| `screenshots/` | 5 phone screenshots, ready to upload |
 | `../privacy-policy.html` | Privacy policy — host it at a public URL (GitHub Pages works) |
 
 ## Upload key (keep it safe)
@@ -65,7 +65,7 @@ The on-device model is downloaded once inside the app: Standard (about 1.6 GB, b
 ```
 
 **Category:** Photography · **Tags:** photo organizer, gallery, duplicates
-**Contact email:** your support address · **Privacy policy URL:** where you host `privacy-policy.html`
+**Contact email:** bpa721studios@gmail.com · **Privacy policy URL:** https://adityabp721.github.io/Photosorter-for-Android/privacy-policy.html (GitHub Pages from `docs/`)
 
 ## App content answers
 
@@ -115,7 +115,7 @@ Play asks for a short video of each: start the job, show the notification, and l
 
 1. [ ] Create a Google Play Developer account ($25 one-time) and finish identity verification.
 2. [ ] Back up the upload key files (above).
-3. [ ] Put your support email into `privacy-policy.html` and host it publicly (for example GitHub Pages).
+3. [x] Support email in `privacy-policy.html`; enable GitHub Pages (master, /docs) to publish it.
 4. [ ] Create the app in Play Console: name, default language, App, Free.
 5. [ ] Fill in App content (table above), Data safety, permission and foreground-service declarations.
 6. [ ] Store listing: text, icon, feature graphic, 2–8 phone screenshots.
