@@ -12,6 +12,8 @@ Kotlin, Jetpack Compose and llama.cpp (C++ via JNI).
 - **Sort & describe** — copies each photo into a topic folder with a one-line AI caption.
 - **Duplicates** — scans a 20,000+ photo library in under 2 minutes; keeps originals, never
   auto-selects RAW files, and sends removals to Android's 30-day trash.
+- **Blurry photos** — finds out-of-focus, shaky and dark/blank (pocket) shots. Sharpness is
+  measured in the sharpest tile of the photo, so a sharp subject on a plain sky isn't flagged.
 - **Private by default** — on-device AI (Qwen3-VL-2B) works offline. Google Gemini is an optional
   cloud mode with your own API key, used only after an in-app consent.
 - **Runs in the background** — foreground service with a progress notification and a Stop button;
@@ -89,13 +91,14 @@ app/src/main/java/com/adityabalagere/photosorter/
   AppModel.kt         state, permissions, worker pool, per-photo progress, copy/move/trash flow
   WorkService.kt      foreground service (mediaProcessing / dataSync) + progress notification
   MainActivity.kt     scaffold, navigation, permission and delete-request launchers
-  Screens.kt          Sort, Organize and Duplicates screens
+  Screens.kt          Sort, Organize and Clean up (duplicates, blurry) screens
   Components.kt       shared UI: job card, photo rows, AI settings sheet, welcome screen
   Trips.kt            SmartFolders (types, trips, folder rules) + grouping
   VlmAi.kt            on-device model: prompts, answer parsing, JNI calls
   Gemini.kt           optional cloud classification with retries and quota handling
   LocalAi.kt          MediaPipe fallback labeler
   Duplicates.kt       SHA-256 on same-size files + perceptual hash of thumbnails, keep rules
+  Blur.kt             blur / dark-frame detection (tiled Laplacian variance on 512 px thumbnails)
   Organizer.kt        copies into Pictures/PhotoSorter/, verification, filed-photo index
   PhotoRepo.kt, ImageTools.kt, Thumbs.kt, Notifications.kt, Theme.kt
 app/src/main/cpp/vlm_jni.cpp   JNI bridge to llama.cpp + mtmd (progress counter, abort flag)

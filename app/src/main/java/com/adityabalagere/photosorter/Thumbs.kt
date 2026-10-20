@@ -143,7 +143,7 @@ fun DupPreviewDialog(
     startIndex: Int,
     selected: Set<Long>,
     onToggle: (Long) -> Unit,
-    onKeepOnly: (Long) -> Unit,
+    onKeepOnly: ((Long) -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     val photos = cluster.photos
@@ -182,7 +182,7 @@ fun DupPreviewDialog(
                     onClick = { onToggle(p.id) },
                     colors = if (del) ButtonDefaults.buttonColors() else ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) { Text(if (del) "Keep this" else "Delete this") }
-                Button(onClick = { onKeepOnly(p.id) }) { Text("Keep only this") }
+                if (onKeepOnly != null) Button(onClick = { onKeepOnly(p.id) }) { Text("Keep only this") }
                 OutlinedButton(onClick = {
                     runCatching {
                         ctx.startActivity(Intent(Intent.ACTION_VIEW, p.uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))

@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.BlurOn
 import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -334,9 +335,27 @@ private fun TripCard(trip: TripCluster) {
 
 // ======================================================================== Duplicates
 
+/** Clean up tab: duplicates or blurry photos. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CleanScreen(model: AppModel) {
+    Column(Modifier.fillMaxSize()) {
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            listOf("dups" to "Duplicates", "blurry" to "Blurry").forEachIndexed { i, (key, label) ->
+                SegmentedButton(
+                    selected = model.cleanMode == key,
+                    onClick = { model.cleanMode = key },
+                    shape = SegmentedButtonDefaults.itemShape(i, 2),
+                ) { Text(label) }
+            }
+        }
+        if (model.cleanMode == "blurry") BlurScreen(model) else DupsScreen(model)
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun DupsScreen(model: AppModel) {
+private fun DupsScreen(model: AppModel) {
     var confirm by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf<Pair<DupCluster, Int>?>(null) }
     preview?.let { (cluster, start) ->
@@ -451,6 +470,115 @@ private fun ClusterCard(cluster: DupCluster, selected: Set<Long>, onToggle: (Lon
                 TextButton(onClick = { onOpen(0) }) { Text("Compare") }
             }
             DupThumbStrip(cluster.photos, selected, onToggle = onToggle, onPreview = onOpen)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BlurScreen(model: AppModel) {
+    var confirm by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf<Pair<List<Photo>, Int>?>(null) }
+    val items = model.blurry
+    val groups = remember(items) {
+        val fmt = java.text.SimpleDateFormat("MMM yyyy", java.util.Locale.getDefault())
+        items.groupBy { it.kind to fmt.format(java.util.Date(it.photo.dateTakenMs)) }.toList()
+    }
+    preview?.let { (photos, start) ->
+        val live = photos.filter { p -> items.any { it.photo.id == p.id } }
+        if (live.isEmpty()) preview = null
+        else DupPreviewDialog(
+            DupCluster(false, live), start.coerceAtMost(live.size - 1), model.blurSelected,
+            onToggle = { model.toggleBlur(it) },
+            onKeepOnly = null,
+            onDismiss = { preview = null },
+        )
+    }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            icon = { Icon(Icons.Outlined.DeleteOutline, null) },
+            title = { Text("Move ${model.blurSelected.size} photos to the trash?") },
+            text = {
+                Text(
+                    "They stay in Android's trash for 30 days, so you can restore them. After that about " +
+                        "${humanBytes(model.blurSelectedBytes)} is freed. Android will ask you to confirm once more."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { confirm = false; model.deleteBlurSelected() },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) { Text("Move to trash") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+        )
+    }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item(key = "controls") {
+            SectionCard(Icons.Outlined.BlurOn, "Blurry photos", "Out-of-focus, shaky and accidental shots") {
+                FilledTonalButton(onClick = { model.scanBlurry() }, enabled = !model.anyBusy) {
+                    ButtonIcon(Icons.Outlined.Search); Text(if (items.isEmpty()) "Scan library" else "Scan again")
+                }
+                StatusLine(model.blurStatus)
+                if (items.isNotEmpty() && !model.blurBusy) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        OutlinedButton(onClick = { model.selectBlurry() }) { Text("Select all") }
+                        if (items.any { it.kind == BlurItem.Kind.DARK }) {
+                            OutlinedButton(onClick = { model.selectBlurry(BlurItem.Kind.DARK) }) { Text("Select dark/blank") }
+                        }
+                        if (model.blurSelected.isNotEmpty()) {
+                            TextButton(onClick = { model.clearBlurSelection() }) { Text("Clear selection") }
+                        }
+                    }
+                }
+                HowItWorks(
+                    "Runs fully on your phone. Each photo's sharpness is measured in its sharpest area, so a " +
+                        "sharp subject on a plain background is not flagged. Screenshots, RAW files and " +
+                        "PhotoSorter's own copies are skipped. Nothing is selected for you: tap a picture to " +
+                        "mark it, press and hold to view it full screen."
+                )
+            }
+        }
+        if (model.blurSelected.isNotEmpty()) {
+            item(key = "deleteBar") {
+                Button(
+                    onClick = { confirm = true },
+                    enabled = !model.anyBusy && model.pendingDelete == null,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                ) {
+                    ButtonIcon(Icons.Outlined.DeleteOutline)
+                    Text("Trash ${model.blurSelected.size} selected  ·  ${humanBytes(model.blurSelectedBytes)}")
+                }
+            }
+        }
+        if (items.isEmpty() && !model.blurBusy) {
+            item(key = "empty") {
+                EmptyState(Icons.Outlined.BlurOn, "Nothing to review yet", "Scan your library to find blurry photos.")
+            }
+        }
+        items(groups, key = { (k, _) -> "b" + k.first.name + k.second }) { (k, group) ->
+            val photos = group.map { it.photo }
+            val scheme = MaterialTheme.colorScheme
+            Card(
+                Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
+                colors = CardDefaults.cardColors(containerColor = scheme.surfaceVariant.copy(alpha = 0.45f)),
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        StatusPill(k.first.label, scheme.secondaryContainer, scheme.onSecondaryContainer)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "${k.second}  ·  ${photos.size} photo${if (photos.size == 1) "" else "s"}",
+                            style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { preview = photos to 0 }) { Text("View") }
+                    }
+                    DupThumbStrip(photos, model.blurSelected, onToggle = { model.toggleBlur(it) }, onPreview = { preview = photos to it })
+                }
+            }
         }
     }
 }

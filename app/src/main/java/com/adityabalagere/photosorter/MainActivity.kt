@@ -89,7 +89,7 @@ private data class Dest(val key: String, val label: String, val icon: ImageVecto
 private val DESTS = listOf(
     Dest("sort", "Sort", Icons.Outlined.AutoAwesome, Icons.Filled.AutoAwesome),
     Dest("trips", "Organize", Icons.Outlined.Luggage, Icons.Filled.Luggage),
-    Dest("dups", "Duplicates", Icons.Outlined.CleaningServices, Icons.Filled.CleaningServices),
+    Dest("dups", "Clean up", Icons.Outlined.CleaningServices, Icons.Filled.CleaningServices),
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -163,7 +163,7 @@ fun MainScreen(model: AppModel) {
                     val running = when (d.key) {
                         "sort" -> model.busy
                         "trips" -> model.tripBusy
-                        else -> model.dupBusy
+                        else -> model.dupBusy || model.blurBusy
                     }
                     NavigationBarItem(
                         selected = model.tab == d.key,
@@ -190,7 +190,7 @@ fun MainScreen(model: AppModel) {
                 }
             }
             when (model.tab) {
-                "dups" -> DupsScreen(model)
+                "dups" -> CleanScreen(model)
                 "trips" -> TripsScreen(model, openSettings = { settingsOpen = true })
                 else -> SortScreen(model, openSettings = { settingsOpen = true })
             }

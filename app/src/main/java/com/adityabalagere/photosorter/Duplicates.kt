@@ -82,9 +82,9 @@ object DupHash {
     fun hamming(a: Long, b: Long): Int = java.lang.Long.bitCount(a xor b)
 
     /** Small software bitmap for hashing: the cached system thumbnail when possible. */
-    fun smallBitmap(resolver: ContentResolver, p: Photo): Bitmap {
+    fun smallBitmap(resolver: ContentResolver, p: Photo, px: Int = 256): Bitmap {
         if (Build.VERSION.SDK_INT >= 29) {
-            val thumb = runCatching { resolver.loadThumbnail(p.uri, Size(256, 256), null) }.getOrNull()
+            val thumb = runCatching { resolver.loadThumbnail(p.uri, Size(px, px), null) }.getOrNull()
             if (thumb != null) {
                 // hardware bitmaps can't be read pixel by pixel
                 if (thumb.config != Bitmap.Config.HARDWARE) return thumb
@@ -93,7 +93,7 @@ object DupHash {
                 if (sw != null) return sw
             }
         }
-        return ImageTools.decodeSmall(resolver, p.uri, 256)
+        return ImageTools.decodeSmall(resolver, p.uri, px)
     }
 
     private val COS: Array<FloatArray> by lazy {

@@ -45,6 +45,7 @@ FREE UP SPACE
 • Finds exact duplicates and look-alikes (bursts, edits, re-saves) across your whole library in minutes
 • Always keeps the original; RAW photos are never selected automatically
 • Swipe to compare copies side by side before you decide
+• Finds blurry, shaky and accidental pocket shots, so you can review and remove them
 • Removed photos go to the trash for 30 days, so mistakes can be undone
 
 PRIVATE BY DEFAULT

@@ -93,7 +93,7 @@ class AppModel(app: Context) {
     var job: JobProgress? by mutableStateOf(null)
         private set
 
-    val anyBusy: Boolean get() = busy || tripBusy || dupBusy || vlmBusy
+    val anyBusy: Boolean get() = busy || tripBusy || dupBusy || blurBusy || vlmBusy
 
     private val _rows = mutableStateOf<List<Row>>(emptyList())
     val rows: List<Row> get() = _rows.value
@@ -144,10 +144,25 @@ class AppModel(app: Context) {
     val selectedBytes: Long
         get() = _clusters.value.flatMap { it.photos }.filter { it.id in selected }.sumOf { it.sizeBytes }
 
+    // ---- blurry photos ----
+
+    /** Clean up tab: "dups" or "blurry". */
+    var cleanMode: String by mutableStateOf("dups")
+    var blurBusy: Boolean by mutableStateOf(false)
+    var blurStatus: String by mutableStateOf("")
+    private val _blurry = mutableStateOf<List<BlurItem>>(emptyList())
+    val blurry: List<BlurItem> get() = _blurry.value
+    var blurSelected: Set<Long> by mutableStateOf(emptySet())
+
+    @Volatile private var blurStopping = false
+
+    val blurSelectedBytes: Long
+        get() = _blurry.value.filter { it.photo.id in blurSelected }.sumOf { it.photo.sizeBytes }
+
     // ---- deletion (Android 11+ needs one system confirmation for other apps' photos) ----
 
     /** Photos waiting to be deleted: originals of a MOVE, or selected duplicates. */
-    class PendingDelete(val photos: List<Photo>, val purpose: String) // "move" | "dups"
+    class PendingDelete(val photos: List<Photo>, val purpose: String) // "move" | "dups" | "blurry"
 
     var pendingDelete: PendingDelete? by mutableStateOf(null)
         private set
@@ -255,6 +270,7 @@ class AppModel(app: Context) {
         if (busy) stop()
         if (tripBusy) stopTrips()
         if (dupBusy) stopDups()
+        if (blurBusy) stopBlurry()
         if (vlmBusy) stopDownload()
     }
 
@@ -821,7 +837,7 @@ class AppModel(app: Context) {
             saveMoveIds(emptyList())
             tripStatus = "Kept ${pd.photos.size} originals - their copies stay in Pictures/PhotoSorter/ too."
         } else {
-            dupStatus = "Delete cancelled - nothing was deleted."
+            reportDelete(pd.purpose, "Delete cancelled - nothing was deleted.")
         }
     }
 
@@ -844,6 +860,10 @@ class AppModel(app: Context) {
                 .filter { it.photos.size >= 2 }
             selected = selected - goneIds
         }
+        if (pd.purpose == "blurry") {
+            _blurry.value = _blurry.value.filter { it.photo.id !in goneIds }
+            blurSelected = blurSelected - goneIds
+        }
         val stillThere = chunk.filter { it.id !in goneIds }
         if (ok && rest.isNotEmpty()) {
             // next chunk of a very large batch
@@ -865,14 +885,18 @@ class AppModel(app: Context) {
                     (if (stillThere.isNotEmpty() && ok) " ${stillThere.size} could not be removed." else "")
             else ->
                 "Moved ${gone.size} photos to the trash - restorable for 30 days, then about ${humanBytes(freed)} is freed." +
-                    (if (_clusters.value.isEmpty()) " All duplicate groups cleared." else "")
+                    (if (pd.purpose == "dups" && _clusters.value.isEmpty()) " All duplicate groups cleared." else "")
         }
         reportDelete(pd.purpose, msg)
         if (!appVisible) Notifications.showResult(ctx, "PhotoSorter", msg)
     }
 
     private fun reportDelete(purpose: String, msg: String) {
-        if (purpose == "move") tripStatus = msg else dupStatus = msg
+        when (purpose) {
+            "move" -> tripStatus = msg
+            "blurry" -> blurStatus = msg
+            else -> dupStatus = msg
+        }
     }
 
     /** Originals of an unfinished move are remembered so the move can be finished after a restart. */
@@ -1095,6 +1119,71 @@ class AppModel(app: Context) {
         val toDelete = _clusters.value.flatMap { it.photos }.filter { it.id in selected }.distinctBy { it.id }
         dupStatus = "Deleting ${toDelete.size} photos - confirm the system prompt..."
         requestDelete(toDelete, "dups")
+    }
+
+    // ---- blurry photos ----
+
+    fun scanBlurry() = scope.launch {
+        if (anyBusy) return@launch
+        if (!requirePhotoAccess { blurStatus = it }) return@launch
+        blurBusy = true
+        blurStopping = false
+        beginJob("Finding blurry photos")
+        blurStatus = ""
+        try {
+            val photos = withContext(Dispatchers.IO) { repo.all(excludeOwnCopies = true) }
+            val found = findBlurry(resolver, photos, { blurStopping }) { done, total ->
+                onMain { jobProgress(done.toLong(), total.toLong(), "Checking focus: $done of $total") }
+            }
+            if (blurStopping) {
+                blurStatus = "Stopped."
+                return@launch
+            }
+            _blurry.value = found
+            blurSelected = emptySet()
+            val dark = found.count { it.kind == BlurItem.Kind.DARK }
+            blurStatus = if (found.isEmpty()) "No blurry photos found."
+            else "Found ${found.size - dark} blurry and $dark dark or blank photos " +
+                "(${humanBytes(found.sumOf { it.photo.sizeBytes })}). Nothing is selected - review them first."
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            blurStatus = "Blur scan failed: ${errText(e)}"
+        } finally {
+            blurBusy = false
+            endJob(if (blurStopping) "Blur scan stopped" else "Blur scan finished", blurStatus)
+        }
+    }
+
+    fun stopBlurry() {
+        blurStopping = true
+        blurStatus = "Stopping..."
+    }
+
+    fun toggleBlur(id: Long) {
+        blurSelected = if (id in blurSelected) blurSelected - id else blurSelected + id
+    }
+
+    fun selectBlurry(kind: BlurItem.Kind? = null) {
+        blurSelected = blurSelected + _blurry.value.filter { kind == null || it.kind == kind }.map { it.photo.id }
+    }
+
+    fun clearBlurSelection() {
+        blurSelected = emptySet()
+    }
+
+    fun deleteBlurSelected() {
+        if (blurSelected.isEmpty()) {
+            blurStatus = "Nothing selected."
+            return
+        }
+        if (pendingDelete?.purpose == "move") {
+            blurStatus = "Finish the pending move in the Organize tab first."
+            return
+        }
+        val toDelete = _blurry.value.map { it.photo }.filter { it.id in blurSelected }
+        blurStatus = "Moving ${toDelete.size} photos to the trash - confirm the system prompt..."
+        requestDelete(toDelete, "blurry")
     }
 
     companion object {
