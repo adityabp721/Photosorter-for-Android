@@ -41,9 +41,11 @@ class WorkService : Service() {
             return START_NOT_STICKY
         }
         try {
-            ServiceCompat.startForeground(
-                this, Notifications.ID_PROGRESS, Notifications.progress(this, model.job), serviceType(model),
-            )
+            val note = Notifications.progress(this, model.job)
+            // Service.startForeground directly: ServiceCompat drops type bits it doesn't know
+            // (mediaProcessing), which Android 15+ rejects as "type none"
+            if (Build.VERSION.SDK_INT >= 29) startForeground(Notifications.ID_PROGRESS, note, serviceType(model))
+            else startForeground(Notifications.ID_PROGRESS, note)
         } catch (e: Exception) {
             // e.g. ForegroundServiceStartNotAllowedException - the job still runs while the app is open
             Log.w(TAG, "could not enter foreground", e)
