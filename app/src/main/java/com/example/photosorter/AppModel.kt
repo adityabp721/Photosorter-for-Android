@@ -983,6 +983,11 @@ class AppModel(app: Context) {
             .flatMap { c -> c.photos.drop(1).filter { !it.isRaw }.map { it.id } }
     }
 
+    /** Preview "Keep only this": every other photo of the group is marked for deletion. */
+    fun keepOnly(cluster: DupCluster, keepId: Long) {
+        selected = selected - keepId + cluster.photos.filter { it.id != keepId }.map { it.id }
+    }
+
     fun clearSelection() {
         selected = emptySet()
     }

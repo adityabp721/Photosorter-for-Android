@@ -500,6 +500,18 @@ private fun TripCard(trip: TripCluster) {
 @Composable
 private fun DupsTab(model: AppModel) {
     var confirmDelete by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf<Pair<DupCluster, Int>?>(null) }
+    preview?.let { (cluster, start) ->
+        // the group may have changed (photos deleted) since the preview opened
+        val live = model.clusters.firstOrNull { it.key == cluster.key }
+        if (live == null) preview = null
+        else DupPreviewDialog(
+            live, start, model.selected,
+            onToggle = { model.toggleSelected(it); confirmDelete = false },
+            onKeepOnly = { model.keepOnly(live, it); confirmDelete = false },
+            onDismiss = { preview = null },
+        )
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -569,13 +581,17 @@ private fun DupsTab(model: AppModel) {
         }
         }
         items(model.clusters, key = { "c" + it.key }) { cluster ->
-            ClusterCard(cluster, model.selected, onToggle = { model.toggleSelected(it) })
+            ClusterCard(
+                cluster, model.selected,
+                onToggle = { model.toggleSelected(it); confirmDelete = false },
+                onOpen = { preview = cluster to it },
+            )
         }
     }
 }
 
 @Composable
-private fun ClusterCard(cluster: DupCluster, selected: Set<Long>, onToggle: (Long) -> Unit) {
+private fun ClusterCard(cluster: DupCluster, selected: Set<Long>, onToggle: (Long) -> Unit, onOpen: (Int) -> Unit) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(10.dp),
@@ -588,6 +604,12 @@ private fun ClusterCard(cluster: DupCluster, selected: Set<Long>, onToggle: (Lon
                     else -> "Look-alikes (burst / edit / re-save) - review"
                 } + " - ${cluster.photos.size} photos - ${humanBytes(cluster.reclaimableBytes)} reclaimable if keeping 1",
                 style = MaterialTheme.typography.titleSmall
+            )
+            DupThumbStrip(cluster.photos, selected, onOpen)
+            Text(
+                "Tap a picture to preview and compare - or tap a line below to switch keep/delete.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             cluster.photos.forEach { p ->
                 val sel = p.id in selected
