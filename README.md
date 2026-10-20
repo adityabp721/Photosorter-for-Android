@@ -45,7 +45,7 @@ Three tools in one app:
 | Mode | Quality | Cost | Privacy | Needs |
 |---|---|---|---|---|
 | Cloud: Gemini | Best captions, can web-verify landmarks/products | per request (free tier is tight) | images sent to the model | API key + internet |
-| On-device VLM: Qwen3-VL-2B via llama.cpp (Apache 2.0) | subjects + places fully offline (~15 s/photo on a Galaxy S24 Ultra) | free, one-time ~1.6 GB download | all on the phone | model files in `Android/data/com.example.photosorter/files/llm/` (in-app button or adb push) |
+| On-device VLM: Qwen3-VL-2B via llama.cpp (Apache 2.0) | subjects + places fully offline (~15 s/photo on a Galaxy S24 Ultra) | free, one-time ~1.6 GB download | all on the phone | model files in `Android/data/com.adityabalagere.photosorter/files/llm/` (in-app button or adb push) |
 | On-device labels: MediaPipe EfficientNet-Lite0 | content categories only (food, animals...) - no place names | free, offline, repeatable | all on the phone | `labeler.tflite` in assets (bundled) |
 
 ### On-device VLM setup (one-time, ~1.6 GB)
@@ -53,8 +53,8 @@ Three tools in one app:
 AI settings (top-right) has a **Download model** button. Or push the files with adb:
 
 ```bash
-adb push Qwen3VL-2B-Instruct-Q4_K_M.gguf      /sdcard/Android/data/com.example.photosorter/files/llm/
-adb push mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf /sdcard/Android/data/com.example.photosorter/files/llm/
+adb push Qwen3VL-2B-Instruct-Q4_K_M.gguf      /sdcard/Android/data/com.adityabalagere.photosorter/files/llm/
+adb push mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf /sdcard/Android/data/com.adityabalagere.photosorter/files/llm/
 # from https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF (Apache 2.0)
 ```
 
@@ -121,7 +121,7 @@ files are missing - it only produces content categories, not place names.
 ## Project layout
 
 ```
-app/src/main/java/com/example/photosorter/
+app/src/main/java/com/adityabalagere/photosorter/
   PhotoSorterApp.kt Application: one AppModel per process (jobs survive the activity)
   WorkService.kt    foreground service + wake lock while a job runs, progress notification
   Notifications.kt  channels, progress/result notifications, JobProgress

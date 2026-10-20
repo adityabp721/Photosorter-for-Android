@@ -1,4 +1,4 @@
-package com.example.photosorter
+package com.adityabalagere.photosorter
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column

@@ -1,4 +1,4 @@
-package com.example.photosorter
+package com.adityabalagere.photosorter
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme

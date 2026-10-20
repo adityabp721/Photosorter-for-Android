@@ -39,7 +39,7 @@ static void free_all() {
 }
 
 extern "C" JNIEXPORT jint JNICALL
-Java_com_example_photosorter_VlmAi_nativeInit(JNIEnv * env, jclass, jstring modelPath, jstring mmprojPath, jint nCtx, jint nThreads) {
+Java_com_adityabalagere_photosorter_VlmAi_nativeInit(JNIEnv * env, jclass, jstring modelPath, jstring mmprojPath, jint nCtx, jint nThreads) {
     std::lock_guard<std::mutex> lock(g_mutex);
     free_all();
 
@@ -101,7 +101,7 @@ Java_com_example_photosorter_VlmAi_nativeInit(JNIEnv * env, jclass, jstring mode
 
 // Classify one JPEG image with a free-form inner prompt. Returns the raw model text, or null on error.
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_example_photosorter_VlmAi_nativeClassify(JNIEnv * env, jclass, jbyteArray jpeg, jstring innerPrompt, jint maxTokens) {
+Java_com_adityabalagere_photosorter_VlmAi_nativeClassify(JNIEnv * env, jclass, jbyteArray jpeg, jstring innerPrompt, jint maxTokens) {
     std::lock_guard<std::mutex> lock(g_mutex);
     if (!g_lctx || !g_mctx || !g_smpl) return nullptr;
     g_abort = false;
@@ -184,7 +184,7 @@ Java_com_example_photosorter_VlmAi_nativeClassify(JNIEnv * env, jclass, jbyteArr
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_example_photosorter_VlmAi_nativeFree(JNIEnv *, jclass) {
+Java_com_adityabalagere_photosorter_VlmAi_nativeFree(JNIEnv *, jclass) {
     std::lock_guard<std::mutex> lock(g_mutex);
     free_all();
     llama_backend_free();
@@ -192,13 +192,13 @@ Java_com_example_photosorter_VlmAi_nativeFree(JNIEnv *, jclass) {
 
 // stage * 1000 + tokens generated so far (lock-free, safe to poll while a classify runs)
 extern "C" JNIEXPORT jint JNICALL
-Java_com_example_photosorter_VlmAi_nativeProgress(JNIEnv *, jclass) {
+Java_com_adityabalagere_photosorter_VlmAi_nativeProgress(JNIEnv *, jclass) {
     int t = g_tokens.load();
     return g_stage.load() * 1000 + (t > 999 ? 999 : t);
 }
 
 // Asks the running classify (if any) to stop as soon as possible.
 extern "C" JNIEXPORT void JNICALL
-Java_com_example_photosorter_VlmAi_nativeAbort(JNIEnv *, jclass) {
+Java_com_adityabalagere_photosorter_VlmAi_nativeAbort(JNIEnv *, jclass) {
     g_abort = true;
 }

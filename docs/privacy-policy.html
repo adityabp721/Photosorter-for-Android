@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhotoSorter Privacy Policy</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 28px; margin-bottom: 4px; }
+  h2 { font-size: 20px; margin-top: 32px; }
+  .muted { color: #777; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { border: 1px solid #8884; padding: 8px; text-align: left; vertical-align: top; }
+</style>
+</head>
+<body>
+<h1>PhotoSorter Privacy Policy</h1>
+<p class="muted">Effective October 19, 2026 · App ID: com.adityabalagere.photosorter</p>
+
+<p>PhotoSorter organizes the photos on your Android phone into folders and helps you remove duplicates.
+By default, all of this happens on your phone. The developer runs no servers and does not receive,
+store or sell any of your data.</p>
+
+<h2>What the app accesses on your phone</h2>
+<ul>
+  <li><b>Your photos</b> (Android "Photos and videos" permission), to analyze, copy, move and find duplicates.</li>
+  <li><b>Photo locations</b> stored inside your photos (GPS, "photo location" permission), to recognize trips.</li>
+  <li><b>Notifications</b>, to show progress and results of long-running jobs.</li>
+</ul>
+<p>Copies are saved in <code>Pictures/PhotoSorter/</code> on your phone. Photos you choose to remove go to
+Android's trash, where they stay for 30 days before Android deletes them.</p>
+
+<h2>When data leaves your phone</h2>
+<table>
+  <tr><th>Feature</th><th>What is sent</th><th>To whom</th><th>When</th></tr>
+  <tr><td>On-device AI (default)</td><td>Nothing</td><td>Nobody</td><td>Always on-device</td></tr>
+  <tr><td>Cloud AI (optional)</td><td>A downscaled copy of each photo you sort, its capture date and, if it has one, its GPS location</td><td>Google, through the Gemini API, using an API key you enter</td><td>Only after you choose Cloud mode and agree to an in-app notice</td></tr>
+  <tr><td>Place names from GPS (optional)</td><td>GPS coordinates only, no photos</td><td>Google, through Android's built-in geocoder</td><td>Only in Cloud mode, or if you turn the setting on</td></tr>
+  <tr><td>AI model download</td><td>No personal data (a standard file download)</td><td>Hugging Face, which hosts the model file</td><td>Once, when you tap Download</td></tr>
+</table>
+<p>Data sent to Google is handled under Google's terms and privacy policy for the Gemini API and Google
+services. It travels over encrypted HTTPS connections. PhotoSorter does not use advertising, analytics
+or tracking SDKs.</p>
+
+<h2>Your API key</h2>
+<p>If you use Cloud mode, your Gemini API key is stored only on your phone, in the app's private storage,
+and is sent only to Google with your requests.</p>
+
+<h2>Data retention and deletion</h2>
+<p>The developer holds no copy of your data, so there is nothing to delete on our side. To remove
+everything the app stored on your phone, uninstall PhotoSorter. Copies it made in
+<code>Pictures/PhotoSorter/</code> remain until you delete them.</p>
+
+<h2>Children</h2>
+<p>PhotoSorter is not directed at children under 13.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes, the new version will be posted at this address with a new effective date.</p>
+
+<h2>Contact</h2>
+<p>Questions: <b>[your support email]</b></p>
+</body>
+</html>

@@ -1,18 +1,21 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
 android {
-    namespace = "com.example.photosorter"
-    compileSdk = 34
+    namespace = "com.adityabalagere.photosorter"
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.photosorter"
+        applicationId = "com.adityabalagere.photosorter"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        // Play requires recent target levels for new apps (Android 16 = API 36)
+        targetSdk = 36
+        versionCode = 3
+        versionName = "1.0.0"
         ndk {
             // the VLM native lib is only built for 64-bit (modern phones)
             abiFilters += listOf("arm64-v8a")
@@ -23,6 +26,31 @@ android {
                 // Always build the native code optimized, even in debug APKs.
                 arguments += listOf("-DCMAKE_BUILD_TYPE=Release")
             }
+        }
+    }
+
+    // Upload key for Play: values live OUTSIDE the repo in keystore.properties
+    // (storeFile, storePassword, keyAlias, keyPassword). Without it, release builds are unsigned.
+    val keyProps = Properties().apply {
+        val f = rootProject.file("keystore.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    signingConfigs {
+        if (keyProps.getProperty("storeFile") != null) {
+            create("upload") {
+                storeFile = file(keyProps.getProperty("storeFile"))
+                storePassword = keyProps.getProperty("storePassword")
+                keyAlias = keyProps.getProperty("keyAlias")
+                keyPassword = keyProps.getProperty("keyPassword")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfigs.findByName("upload")?.let { signingConfig = it }
         }
     }
 

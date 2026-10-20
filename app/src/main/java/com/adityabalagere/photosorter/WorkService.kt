@@ -1,4 +1,4 @@
-package com.example.photosorter
+package com.adityabalagere.photosorter
 
 import android.app.Service
 import android.content.Context
@@ -42,8 +42,7 @@ class WorkService : Service() {
         }
         try {
             ServiceCompat.startForeground(
-                this, Notifications.ID_PROGRESS, Notifications.progress(this, model.job),
-                if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
+                this, Notifications.ID_PROGRESS, Notifications.progress(this, model.job), serviceType(model),
             )
         } catch (e: Exception) {
             // e.g. ForegroundServiceStartNotAllowedException - the job still runs while the app is open
@@ -81,9 +80,18 @@ class WorkService : Service() {
         return START_NOT_STICKY
     }
 
-    /** Android 15+ foreground-service time limit for dataSync (only applies when targeting 35+). */
-    @Suppress("unused")
-    fun onTimeout(startId: Int, fgsType: Int) {
+    /**
+     * Downloading the model is a data transfer (dataSync); sorting, trip scans and duplicate scans
+     * process photos on the device (mediaProcessing, Android 15+).
+     */
+    private fun serviceType(model: AppModel): Int = when {
+        Build.VERSION.SDK_INT < 29 -> 0
+        model.vlmBusy || Build.VERSION.SDK_INT < 35 -> ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        else -> ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+    }
+
+    /** Android 15+ time limit for dataSync / mediaProcessing services (6 h per day): stop cleanly. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
         appModel.stopAll()
         stopSelf()
     }
@@ -97,7 +105,7 @@ class WorkService : Service() {
     }
 
     companion object {
-        const val ACTION_STOP = "com.example.photosorter.STOP"
+        const val ACTION_STOP = "com.adityabalagere.photosorter.STOP"
         private const val TAG = "WorkService"
 
         fun start(ctx: Context) {

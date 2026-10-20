@@ -1,4 +1,4 @@
-package com.example.photosorter
+package com.adityabalagere.photosorter
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.Luggage
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -335,6 +336,31 @@ fun EngineChip(model: AppModel, onClick: () -> Unit) {
 fun AiSettingsSheet(model: AppModel, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     var showKey by remember { mutableStateOf(false) }
+    var askConsent by remember { mutableStateOf(false) }
+    if (askConsent) {
+        AlertDialog(
+            onDismissRequest = { askConsent = false },
+            icon = { Icon(Icons.Outlined.Cloud, null) },
+            title = { Text("Send photos to Google?") },
+            text = {
+                Text(
+                    "In cloud mode, each photo you sort is downscaled and sent to Google's Gemini API with your own " +
+                        "API key, together with its date and GPS location if it has one. Google processes it under " +
+                        "its Gemini API terms. PhotoSorter itself stores nothing on any server. On-device mode " +
+                        "sends nothing."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    model.cloudConsent = true
+                    model.mode = "cloud"
+                    model.savePrefs()
+                    askConsent = false
+                }) { Text("I agree") }
+            },
+            dismissButton = { TextButton(onClick = { askConsent = false }) { Text("Stay on-device") } },
+        )
+    }
     ModalBottomSheet(
         onDismissRequest = { model.savePrefs(); onDismiss() },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -354,7 +380,11 @@ fun AiSettingsSheet(model: AppModel, onDismiss: () -> Unit) {
                 ) { Text("On-device") }
                 SegmentedButton(
                     selected = model.mode == "cloud",
-                    onClick = { if (!model.anyBusy) { model.mode = "cloud"; model.savePrefs() } },
+                    onClick = {
+                        if (model.anyBusy) return@SegmentedButton
+                        if (!model.cloudConsent) askConsent = true
+                        else { model.mode = "cloud"; model.savePrefs() }
+                    },
                     shape = SegmentedButtonDefaults.itemShape(1, 2),
                     icon = { SegmentedButtonDefaults.Icon(model.mode == "cloud") { Icon(Icons.Outlined.Cloud, null, Modifier.size(18.dp)) } },
                 ) { Text("Cloud") }

@@ -16,13 +16,15 @@
     <!-- background runs: foreground service + progress/finished notifications -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Android 15+: on-device photo processing runs as a mediaProcessing service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:name=".PhotoSorterApp"
         android:label="PhotoSorter"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -41,6 +43,6 @@
         <service
             android:name=".WorkService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync|mediaProcessing" />
     </application>
 </manifest>

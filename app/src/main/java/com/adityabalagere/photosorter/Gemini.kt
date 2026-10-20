@@ -1,4 +1,4 @@
-package com.example.photosorter
+package com.adityabalagere.photosorter
 
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers

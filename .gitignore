@@ -8,3 +8,6 @@ native/llama.cpp/
 native/vlm/build-host/
 *.log
 .qwen-logs/
+keystore.properties
+*.jks
+*.keystore

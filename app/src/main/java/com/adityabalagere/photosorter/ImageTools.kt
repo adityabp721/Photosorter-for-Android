@@ -1,4 +1,4 @@
-package com.example.photosorter
+package com.adityabalagere.photosorter
 
 import android.content.ContentResolver
 import android.graphics.Bitmap

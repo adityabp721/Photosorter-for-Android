@@ -1,4 +1,4 @@
-package com.example.photosorter
+package com.adityabalagere.photosorter
 
 import android.Manifest
 import android.content.Context
@@ -76,7 +76,7 @@ class AppModel(app: Context) {
     // ---- general ----
 
     var tab: String by mutableStateOf("sort")                       // "sort" | "trips" | "dups"
-    var mode: String by mutableStateOf(sp.getString("mode", "cloud") ?: "cloud") // "cloud" | "local"
+    var mode: String by mutableStateOf(sp.getString("mode", "local") ?: "local") // "cloud" | "local"
     var apiKey: String by mutableStateOf(sp.getString("key", "") ?: "")
     var modelName: String by mutableStateOf(sp.getString("model", Gemini.DEFAULT_MODEL) ?: Gemini.DEFAULT_MODEL)
     var limitText: String by mutableStateOf("50")
@@ -108,6 +108,8 @@ class AppModel(app: Context) {
     var tripMove: Boolean by mutableStateOf(sp.getBoolean("tripmove", false))
     /** On-device mode: also look up country names for GPS photos (sends coordinates only to Google). */
     var geocodeLocal: Boolean by mutableStateOf(sp.getBoolean("geocode", false))
+    /** The user agreed (once) that cloud mode uploads downscaled photos to Google Gemini. */
+    var cloudConsent: Boolean by mutableStateOf(sp.getBoolean("cloudConsent", false))
     private val geoNames = java.util.concurrent.ConcurrentHashMap<Long, String>()
     private val _trips = mutableStateOf<List<TripCluster>>(emptyList())
     val trips: List<TripCluster> get() = _trips.value
@@ -215,6 +217,7 @@ class AppModel(app: Context) {
             .putBoolean("search", useWebSearch)
             .putBoolean("tripmove", tripMove)
             .putBoolean("geocode", geocodeLocal)
+            .putBoolean("cloudConsent", cloudConsent)
             .apply()
     }
 
@@ -316,6 +319,7 @@ class AppModel(app: Context) {
 
     private fun cloudConfigError(): String? = when {
         mode == "local" -> null
+        !cloudConsent -> "Cloud mode needs your OK first: open AI settings and choose Cloud."
         apiKey.isBlank() -> "Enter your Gemini API key first (free at aistudio.google.com), or switch to on-device mode."
         modelName.isBlank() -> "Enter a model name."
         else -> null

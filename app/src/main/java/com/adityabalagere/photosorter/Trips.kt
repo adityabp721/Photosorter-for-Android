@@ -1,4 +1,4 @@
-package com.example.photosorter
+package com.adityabalagere.photosorter
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf

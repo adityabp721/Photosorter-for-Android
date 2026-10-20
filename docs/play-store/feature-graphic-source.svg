@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8A6CFF"/><stop offset=".55" stop-color="#6750E8"/><stop offset="1" stop-color="#3A2BB0"/></linearGradient></defs><g transform="translate(0 262)">
+<rect width="1024" height="500" fill="url(#g)"/>
+<g transform="translate(40 70) scale(3.3)"><g transform="translate(0 0) scale(1.0)"><g transform="translate(30.4 35.4) scale(1.8)"><path fill="#FFFFFF" d="M22,16V4c0,-1.1 -0.9,-2 -2,-2H8c-1.1,0 -2,0.9 -2,2v12c0,1.1 0.9,2 2,2h12c1.1,0 2,-0.9 2,-2zM11,12l2.03,2.71L16,11l4,5H8l3,-4zM2,6v14c0,1.1 0.9,2 2,2h14v-2H4V6H2z"/></g></g><g transform="translate(0 0) scale(1.0)"><g transform="translate(55.4 29.4) scale(0.8)"><path fill="#FFC453" d="M19,9l1.25,-2.75L23,5l-2.75,-1.25L19,1l-1.25,2.75L15,5l2.75,1.25L19,9zM11.5,9.5L9,4L6.5,9.5L1,12l5.5,2.5L9,20l2.5,-5.5L17,12L11.5,9.5zM19,15l-1.25,2.75L15,19l2.75,1.25L19,23l1.25,-2.75L23,19l-2.75,-1.25L19,15z"/></g></g></g>
+<text x="420" y="225" font-family="Helvetica Neue, Helvetica, Arial" font-size="78" font-weight="700" fill="#FFFFFF">PhotoSorter</text>
+<text x="424" y="290" font-family="Helvetica Neue, Helvetica, Arial" font-size="34" fill="#E6DEFF">Your gallery, organized by AI</text>
+<text x="424" y="340" font-family="Helvetica Neue, Helvetica, Arial" font-size="26" fill="#FFC453">Trips · Food · Screenshots · Duplicates</text>
+<text x="424" y="382" font-family="Helvetica Neue, Helvetica, Arial" font-size="24" fill="#E6DEFF">Private on-device AI · works offline</text>
+</g></svg>
