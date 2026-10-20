@@ -110,6 +110,15 @@ class AppModel(app: Context) {
     var geocodeLocal: Boolean by mutableStateOf(sp.getBoolean("geocode", false))
     /** The user agreed (once) that cloud mode uploads downscaled photos to Google Gemini. */
     var cloudConsent: Boolean by mutableStateOf(sp.getBoolean("cloudConsent", false))
+    /**
+     * On-device model: STANDARD, or LITE for phones with little RAM. Until the user picks one, an
+     * already-downloaded model wins, else the RAM-based recommendation.
+     */
+    var vlmVariant: VlmAi.Variant by mutableStateOf(
+        sp.getString("vlmVariant", null)?.let { n -> VlmAi.Variant.entries.firstOrNull { it.name == n } }
+            ?: VlmAi.Variant.entries.firstOrNull { VlmAi.isReady(ctx, it) }
+            ?: VlmAi.recommended(ctx)
+    ).also { VlmAi.select(it.value) }
     private val geoNames = java.util.concurrent.ConcurrentHashMap<Long, String>()
     private val _trips = mutableStateOf<List<TripCluster>>(emptyList())
     val trips: List<TripCluster> get() = _trips.value
@@ -218,6 +227,7 @@ class AppModel(app: Context) {
             .putBoolean("tripmove", tripMove)
             .putBoolean("geocode", geocodeLocal)
             .putBoolean("cloudConsent", cloudConsent)
+            .putString("vlmVariant", vlmVariant.name)
             .apply()
     }
 
@@ -888,7 +898,22 @@ class AppModel(app: Context) {
 
     // ---- local VLM model download ----
 
-    /** Downloads the ~3.3 GB on-device model files; resumes partial downloads. */
+    /** Switches the on-device model; the other one's files can be removed with [deleteOtherModel]. */
+    fun chooseVlmVariant(v: VlmAi.Variant) {
+        if (anyBusy || v == vlmVariant) return
+        VlmAi.select(v)
+        vlmVariant = v
+        vlmStatus = ""
+        savePrefs()
+    }
+
+    fun deleteOtherModel() {
+        if (anyBusy) return
+        VlmAi.Variant.entries.filter { it != vlmVariant }.forEach { VlmAi.deleteFiles(ctx, it) }
+        vlmStatus = "Removed the other model's files."
+    }
+
+    /** Downloads the selected on-device model's files; resumes partial downloads. */
     fun downloadVlmModel() = scope.launch {
         if (anyBusy) return@launch
         if (!VlmAi.nativeAvailable) {
@@ -900,17 +925,21 @@ class AppModel(app: Context) {
         beginJob("Downloading on-device AI model")
         var summary = ""
         try {
-            val files = listOf(VlmAi.MODEL_NAME to VlmAi.MODEL_URL, VlmAi.MMPROJ_NAME to VlmAi.MMPROJ_URL)
+            val v = VlmAi.variant
+            val files = listOf(
+                Triple(v.modelName, v.modelUrl, v.minModelBytes),
+                Triple(v.mmprojName, v.mmprojUrl, v.minMmprojBytes),
+            )
             val dir = VlmAi.modelDir(ctx)
             val freeBytes = runCatching { StatFs(dir.path).availableBytes }.getOrDefault(-1L)
-            if (freeBytes in 0 until VlmAi.DOWNLOAD_BYTES + 200_000_000L) {
-                summary = "Not enough free space: the model needs about ${humanBytes(VlmAi.DOWNLOAD_BYTES)} (free: ${humanBytes(freeBytes)})."
+            if (freeBytes in 0 until v.downloadBytes + 200_000_000L) {
+                summary = "Not enough free space: the model needs about ${humanBytes(v.downloadBytes)} (free: ${humanBytes(freeBytes)})."
                 return@launch
             }
             for ((i, f) in files.withIndex()) {
-                val (name, url) = f
+                val (name, url, minBytes) = f
                 val target = File(dir, name)
-                if (target.length() > 300_000_000L) continue
+                if (target.length() > minBytes) continue
                 withContext(Dispatchers.IO) { downloadOne(url, target, "(${i + 1}/${files.size})") }
             }
             VlmAi.removeLegacyFiles(ctx)

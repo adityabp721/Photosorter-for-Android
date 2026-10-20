@@ -60,7 +60,7 @@ SAFE BY DESIGN
 WORKS IN THE BACKGROUND
 Long jobs keep running with a progress notification, and you can stop them anytime.
 
-The on-device model (about 1.6 GB) is downloaded once inside the app. A recent phone with 8 GB of RAM or more is recommended.
+The on-device model is downloaded once inside the app: Standard (about 1.6 GB, best results) or Lite (about 550 MB) for phones with less memory.
 ```
 
 **Category:** Photography · **Tags:** photo organizer, gallery, duplicates
@@ -105,7 +105,7 @@ albums. This needs broad, persistent access; the Android photo picker cannot pro
 **Foreground service types.**
 - `mediaProcessing` (Android 15+): user-started on-device AI classification of photos and duplicate
   scanning, with a progress notification and a Stop button.
-- `dataSync`: user-started download of the on-device AI model (about 1.6 GB) and on Android 14 and older.
+- `dataSync`: user-started download of the on-device AI model (about 550 MB or 1.6 GB) and on Android 14 and older.
 Play asks for a short video of each: start the job, show the notification, and leave the app.
 
 **ACCESS_MEDIA_LOCATION.** Reads GPS stored in the user's photos to recognize trips.

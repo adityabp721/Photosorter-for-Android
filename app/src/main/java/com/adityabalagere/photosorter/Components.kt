@@ -310,7 +310,7 @@ private fun FolderResult(folder: String, description: String) {
 
 fun engineLabel(model: AppModel, ctx: android.content.Context): String = when {
     model.mode == "cloud" -> "Cloud · ${model.modelName.ifBlank { "Gemini" }}"
-    VlmAi.isReady(ctx) -> "On-device · ${VlmAi.MODEL_LABEL}"
+    VlmAi.isReady(ctx, model.vlmVariant) -> "On-device · ${model.vlmVariant.label}"
     else -> "On-device · basic labels"
 }
 
@@ -391,18 +391,45 @@ fun AiSettingsSheet(model: AppModel, onDismiss: () -> Unit) {
             }
             if (model.mode == "local") {
                 FeatureLine(Icons.Outlined.Lock, "Private & free", "Nothing leaves your phone. No key, works offline.")
+                val v = model.vlmVariant
+                val ramGb = remember { VlmAi.totalRamBytes(ctx) / 1_000_000_000.0 }
+                val recommended = remember { VlmAi.recommended(ctx) }
+                Text("On-device model", style = MaterialTheme.typography.titleSmall)
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    VlmAi.Variant.entries.forEachIndexed { i, opt ->
+                        SegmentedButton(
+                            selected = v == opt,
+                            onClick = { model.chooseVlmVariant(opt) },
+                            enabled = !model.anyBusy,
+                            shape = SegmentedButtonDefaults.itemShape(i, VlmAi.Variant.entries.size),
+                        ) { Text(if (opt.lite) "Lite · ${opt.sizeText}" else "Standard · ${opt.sizeText}") }
+                    }
+                }
                 FeatureLine(
-                    Icons.Outlined.AutoAwesome, "${VlmAi.MODEL_LABEL} (~1.6 GB, Apache 2.0)",
-                    "Reads each photo and recognizes subjects and places. " +
-                        "Without it, a small built-in labeler gives simple categories.",
+                    Icons.Outlined.AutoAwesome, "${v.label} (Apache 2.0)",
+                    if (v.lite) "Faster and light on memory. Writes a caption and picks the folder from it; " +
+                        "trips are named from GPS or the month, not recognized landmarks."
+                    else "Recognizes subjects and places, and names trips from what it sees. " +
+                        "Best on phones with 6 GB of RAM or more.",
+                )
+                Text(
+                    "This phone: %.1f GB RAM · recommended: %s".format(ramGb, if (recommended.lite) "Lite" else "Standard") +
+                        ". Without a model, a small built-in labeler gives simple categories.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(VlmAi.statusText(ctx), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (!VlmAi.isReady(ctx)) {
+                if (!VlmAi.isReady(ctx, v)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { model.downloadVlmModel() }, enabled = !model.anyBusy) {
-                            Text(if (model.vlmBusy) "Downloading..." else "Download model (1.6 GB)")
+                            Text(if (model.vlmBusy) "Downloading..." else "Download model (${v.sizeText.removePrefix("~")})")
                         }
                         if (model.vlmBusy) TextButton(onClick = { model.stopDownload() }) { Text("Pause") }
+                    }
+                }
+                val other = VlmAi.Variant.entries.firstOrNull { it != v && VlmAi.isReady(ctx, it) }
+                if (other != null) {
+                    TextButton(onClick = { model.deleteOtherModel() }, enabled = !model.anyBusy) {
+                        Text("Delete ${other.label} files (${other.sizeText})")
                     }
                 }
                 StatusLine(model.vlmStatus)

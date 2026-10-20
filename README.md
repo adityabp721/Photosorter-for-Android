@@ -37,13 +37,19 @@ and are covered by unit tests.
 
 | Engine | Use | Notes |
 |---|---|---|
-| Qwen3-VL-2B via llama.cpp (default) | Subjects, places, captions, fully offline | ~1.6 GB download in-app; ~15 s per photo on a Galaxy S24 Ultra; Apache 2.0 |
+| Qwen3-VL-2B via llama.cpp (Standard) | Subjects, places, captions, fully offline | ~1.6 GB download in-app; ~15 s per photo on a Galaxy S24 Ultra; Apache 2.0 |
+| SmolVLM2-500M via llama.cpp (Lite) | Captions; folder type from caption keywords | ~550 MB, about 3x faster; default on phones under 6 GB RAM; no landmark-based trip names; Apache 2.0 |
 | MediaPipe EfficientNet-Lite0 (bundled) | Fallback categories when the model isn't downloaded | No place names |
 | Google Gemini (optional) | Cloud captions, can web-verify landmarks | Your API key; photos are uploaded (downscaled) |
 
 `native/vlm/compare_vlm.cpp` is a host-side A/B harness that runs any two GGUF models on the same
-photos with the app's exact prompts. It was used to choose Qwen3-VL-2B: 2.2x faster than
-Qwen2.5-VL-3B, half the download, and a commercial-friendly license.
+photos with the app's exact prompts. It was used to choose Qwen3-VL-2B (2.2x faster than
+Qwen2.5-VL-3B, half the download, and a commercial-friendly license) and to tune the Lite prompt:
+SmolVLM2-500M ignores a fixed answer format but writes accurate one-line captions, so the app
+asks for a caption and maps its keywords to a folder type.
+
+The model choice lives in AI settings (Standard / Lite), with the phone's RAM and a
+recommendation shown. Prompts are wrapped in each model's own chat template.
 
 ## Build
 
@@ -68,7 +74,12 @@ To skip the in-app model download during development, push the files with adb:
 adb push Qwen3VL-2B-Instruct-Q4_K_M.gguf      /sdcard/Android/data/com.adityabalagere.photosorter/files/llm/
 adb push mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf /sdcard/Android/data/com.adityabalagere.photosorter/files/llm/
 # from https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF
+# Lite: SmolVLM2-500M-Video-Instruct-Q8_0.gguf + mmproj-SmolVLM2-500M-Video-Instruct-Q8_0.gguf
+#       from https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF
 ```
+
+Open the app once before pushing so it creates the `llm/` folder itself; a folder created by
+`adb shell mkdir` is owned by the shell user and the app cannot read files in it.
 
 ## Project layout
 

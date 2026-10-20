@@ -82,6 +82,29 @@ class SmartFoldersTest {
         assertEquals("events", b.type); assertEquals("Japan", b.place); assertEquals("crowds at a temple", b.description)
     }
 
+    @Test fun liteCaptionsMapToTypes() {
+        // real SmolVLM2-500M captions of the test photos
+        val cases = mapOf(
+            "A plate of food with a fork and spoon on it." to "food",
+            "A close-up of a pan filled with a creamy orange curry, garnished with dill and herbs." to "food",
+            "A pot of orange batter and a baking tray with round balls of batter are on a white stove." to "food",
+            "Three people are playing traditional Chinese instruments in a room." to "events",
+            "Three people are on stage in a room with a fire mural on the wall." to "events",
+            "The photo captures the grandeur of a traditional Chinese pavilion surrounded by lush greenery." to "travel",
+            "A large circular emblem with a bird and a circle in the center, surrounded by intricate patterns." to "art",
+            "A woman in a brown sweater stands on a rocky shore at sunset." to "people",
+            "A snowy mountain behind a lake." to "nature",
+            "Nothing recognizable here." to "other",
+        )
+        for ((caption, type) in cases) {
+            val r = VlmAi.liteResult(caption)!!
+            assertEquals(caption, type, r.type)
+            assertEquals("", r.place)
+            assertEquals(caption.trimEnd('.'), r.description)
+        }
+        assertEquals(null, VlmAi.liteResult("  \n "))
+    }
+
     @Test fun exactCopiesKeepTheOriginalNotTheAppCopy() {
         // the app's own copy was added later and lives in Pictures/PhotoSorter/ -> the camera original is kept
         val original = photo(10, "2026-10-04T20:00:59-07:00", -420, "DCIM/Camera/").copy(addedMs = 1000)

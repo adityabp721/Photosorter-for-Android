@@ -44,6 +44,10 @@ static std::vector<unsigned char> read_file(const std::string & p) {
     return std::vector<unsigned char>((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
+static const char * LITE =
+    "Describe this photo in one short sentence. (%s)";
+
+
 int main(int argc, char ** argv) {
     if (argc < 4) { fprintf(stderr, "usage: %s model mmproj list.tsv\n", argv[0]); return 1; }
     llama_log_set([](ggml_log_level, const char *, void *) {}, nullptr);
@@ -71,8 +75,13 @@ int main(int argc, char ** argv) {
         std::getline(ss, path, '\t'); std::getline(ss, kind, '\t'); std::getline(ss, hints);
         if (path.empty()) continue;
         char inner[4096];
-        snprintf(inner, sizeof inner, kind == "trip" ? TRIP : kind == "smart" ? SMART : SORT, hints.c_str());
-        std::string prompt = "<|im_start|>user\n<__media__>\n" + std::string(inner) + "<|im_end|>\n<|im_start|>assistant\n";
+        snprintf(inner, sizeof inner, kind == "trip" ? TRIP : kind == "smart" ? SMART : kind == "lite" ? LITE : SORT, hints.c_str());
+        std::string user = "<__media__>\n" + std::string(inner);
+        llama_chat_message msg { "user", user.c_str() };
+        std::vector<char> buf(user.size() + 1024);
+        int32_t n = llama_chat_apply_template(llama_model_chat_template(model, nullptr), &msg, 1, true, buf.data(), (int32_t) buf.size());
+        std::string prompt = n > 0 && (size_t) n <= buf.size() ? std::string(buf.data(), (size_t) n)
+                                   : "<|im_start|>user\n" + user + "<|im_end|>\n<|im_start|>assistant\n";
         auto img = read_file(path);
         auto bw = mtmd_helper_bitmap_init_from_buf(mctx, img.data(), img.size(), false, mtmd_helper_init_opt_default());
         mtmd_bitmap * bm[1] = { bw.bitmap };

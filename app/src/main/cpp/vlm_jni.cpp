@@ -114,7 +114,15 @@ Java_com_adityabalagere_photosorter_VlmAi_nativeClassify(JNIEnv * env, jclass, j
     std::vector<unsigned char> img((size_t) len);
     if (len > 0) env->GetByteArrayRegion(jpeg, 0, len, (jbyte *) img.data());
 
-    std::string prompt = "<|im_start|>user\n<__media__>\n" + std::string(prompt_c) + "<|im_end|>\n<|im_start|>assistant\n";
+    // wrap in the model's own chat format (ChatML for Qwen, "User:/Assistant:" for SmolVLM)
+    std::string user = "<__media__>\n" + std::string(prompt_c);
+    llama_chat_message msg { "user", user.c_str() };
+    std::vector<char> tmpl_buf(user.size() + 1024);
+    int32_t tn = llama_chat_apply_template(llama_model_chat_template(g_model, nullptr), &msg, 1, true,
+                                           tmpl_buf.data(), (int32_t) tmpl_buf.size());
+    std::string prompt = tn > 0 && (size_t) tn <= tmpl_buf.size()
+        ? std::string(tmpl_buf.data(), (size_t) tn)
+        : "<|im_start|>user\n" + user + "<|im_end|>\n<|im_start|>assistant\n";
 
     mtmd_helper_init_opt opt = mtmd_helper_init_opt_default();
     auto bmp_w = mtmd_helper_bitmap_init_from_buf(g_mctx, img.data(), img.size(), false, opt);
