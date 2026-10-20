@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.PhotoSorter" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FFF8F6FF</item>
+    </style>
+</resources>

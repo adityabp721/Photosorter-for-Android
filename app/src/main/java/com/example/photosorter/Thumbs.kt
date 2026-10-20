@@ -12,6 +12,12 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,27 +84,48 @@ fun PhotoThumb(photo: Photo, px: Int, modifier: Modifier = Modifier, contentScal
     }
 }
 
-private val KeepGreen = Color(0xFF2E7D32)
-
-/** Horizontal strip of a duplicate group's photos: red border = will be deleted. Tap opens the preview. */
+/**
+ * Horizontal strip of a duplicate group's photos. Tap = switch keep/delete,
+ * long-press = full-screen preview. Red border + badge = will be deleted.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun DupThumbStrip(photos: List<Photo>, selected: Set<Long>, onOpen: (Int) -> Unit) {
+fun DupThumbStrip(photos: List<Photo>, selected: Set<Long>, onToggle: (Long) -> Unit, onPreview: (Int) -> Unit) {
+    val keep = SuccessColor
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         itemsIndexed(photos, key = { _, p -> p.id }) { i, p ->
             val del = p.id in selected
+            val color = if (del) MaterialTheme.colorScheme.error else keep
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                PhotoThumb(
-                    p, 256,
-                    Modifier
-                        .size(104.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .border(3.dp, if (del) MaterialTheme.colorScheme.error else KeepGreen, RoundedCornerShape(8.dp))
-                        .clickable { onOpen(i) }
-                )
+                Box {
+                    PhotoThumb(
+                        p, 256,
+                        Modifier
+                            .size(112.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(3.dp, color, RoundedCornerShape(12.dp))
+                            .combinedClickable(onClick = { onToggle(p.id) }, onLongClick = { onPreview(i) })
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(50), color = color,
+                        modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
+                    ) {
+                        Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                if (del) Icons.Filled.Delete else Icons.Filled.CheckCircle, null,
+                                tint = Color.White, modifier = Modifier.size(12.dp),
+                            )
+                            Text(
+                                if (del) " DELETE" else " KEEP",
+                                style = MaterialTheme.typography.labelSmall, color = Color.White,
+                            )
+                        }
+                    }
+                }
                 Text(
-                    if (del) "DELETE" else "KEEP",
+                    humanBytes(p.sizeBytes) + if (p.isRaw) " \u00B7 RAW" else "",
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (del) MaterialTheme.colorScheme.error else KeepGreen
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
