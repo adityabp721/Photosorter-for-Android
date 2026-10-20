@@ -28,7 +28,7 @@ object Gemini {
 
     private val PROMPT = """
         File this photo. Return ONLY a JSON object with exactly two keys:
-        - "folder": a 1-3 word lowercase kebab-case folder name, e.g. "beach", "dog", "food", "documents", "screenshots", "new-york", "birthday", "products". Use "other" if nothing fits.
+        - "folder": ONE broad lowercase folder for the main subject. Prefer exactly one of "food", "people", "pets", "nature", "travel", "city", "home", "shopping", "documents", "screenshots", "vehicles", "events", "art", "other"; only invent a new 1-2 word kebab-case name if none fits at all.
         - "description": one short sentence (at most 15 words) describing the photo. Use the EXIF hints below when helpful.
     """.trimIndent()
 

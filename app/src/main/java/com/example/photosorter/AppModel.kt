@@ -937,7 +937,7 @@ class AppModel(app: Context) {
         dupStatus = "Reading photo library..."
         try {
             val photos = withContext(Dispatchers.IO) { repo.all() }
-            dupStatus = "Hashing ${photos.size} photos - byte-identical pass first, then near-duplicate pass. On-device, free, may take a few minutes."
+            dupStatus = "Checking ${photos.size} photos - byte-identical pass first, then near-duplicate pass. On-device, free."
             val found = findDuplicates(resolver, photos, { dupStopping }) { done, total, phase ->
                 onMain {
                     val label = if (phase == "hashing") "Step 1/2: byte-identical copies"
@@ -950,13 +950,17 @@ class AppModel(app: Context) {
                 dupStatus = "Stopped."
                 return@launch
             }
-            _clusters.value = found
-            selected = found.flatMap { c -> c.photos.drop(1).map { it.id } }.toSet()
+            // exact copies first (safe to clean), then look-alikes (bursts/edits - review)
+            _clusters.value = found.sortedBy { if (it.exact) 0 else 1 }
+            selected = found.flatMap { c -> c.defaultDelete.map { it.id } }.toSet()
             dupStatus = if (found.isEmpty()) {
                 "No duplicates found."
             } else {
-                val reclaimable = found.flatMap { c -> c.photos.drop(1) }.sumOf { it.sizeBytes }
-                "Found ${found.size} duplicate groups; about ${humanBytes(reclaimable)} reclaimable if you keep the newest of each. Tap photos to switch keep/delete, then press Delete selected."
+                val exact = found.filter { it.exact }
+                val alike = found.size - exact.size
+                "Found ${exact.size} groups of exact copies (about ${humanBytes(exact.sumOf { it.reclaimableBytes })}, " +
+                    "extra copies pre-selected) and $alike groups of look-alikes - bursts, edits, RAW+JPEG - " +
+                    "which are NOT selected; review them and tap the ones to delete."
             }
         } catch (e: CancellationException) {
             throw e
@@ -964,13 +968,23 @@ class AppModel(app: Context) {
             dupStatus = "Duplicate scan failed: ${errText(e)}"
         } finally {
             dupBusy = false
-            endJob("Duplicate scan finished", dupStatus)
+            endJob(if (dupStopping) "Duplicate scan stopped" else "Duplicate scan finished", dupStatus)
         }
     }
 
     fun stopDups() {
         dupStopping = true
         dupStatus = "Stopping..."
+    }
+
+    /** Look-alike groups: mark all but the newest (never RAW files) for deletion. */
+    fun selectLookAlikes() {
+        selected = selected + _clusters.value.filter { !it.exact }
+            .flatMap { c -> c.photos.drop(1).filter { !it.isRaw }.map { it.id } }
+    }
+
+    fun clearSelection() {
+        selected = emptySet()
     }
 
     fun toggleSelected(id: Long) {

@@ -29,7 +29,7 @@ class PhotoRepo(private val resolver: ContentResolver) {
     fun recent(limit: Int): List<Photo> = query("DATE_ADDED DESC", limit, excludeOwnCopies = true)
 
     /** Everything in the library (capped). [excludeOwnCopies] skips Pictures/PhotoSorter/. */
-    fun all(cap: Int = 20000, excludeOwnCopies: Boolean = false): List<Photo> =
+    fun all(cap: Int = 200_000, excludeOwnCopies: Boolean = false): List<Photo> =
         query("DATE_ADDED DESC", cap, excludeOwnCopies)
 
     /** The photos with these ids that still exist. */

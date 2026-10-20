@@ -230,7 +230,7 @@ object Organizer {
                 MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 arrayOf(MediaStore.Images.Media._ID),
                 sel,
-                arrayOf("$BASE/$folder", name),
+                arrayOf("$BASE/$folder/", name), // MediaStore keeps a trailing slash
                 null,
             )?.use { it.count }
             n == null || n > 0
@@ -328,7 +328,7 @@ object Organizer {
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             arrayOf(MediaStore.Images.Media._ID),
             sel,
-            arrayOf("$BASE/$folder", name),
+            arrayOf("$BASE/$folder/", name), // MediaStore keeps a trailing slash
             null,
         )?.use {
             if (it.moveToFirst()) ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, it.getLong(0)) else null

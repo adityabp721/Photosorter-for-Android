@@ -77,4 +77,20 @@ class LogicTest {
         assertEquals("2 KB", humanBytes(2048))
         assertEquals("1.5 MB", humanBytes(1572864))
     }
+
+    private fun named(id: Long, name: String, mime: String = "image/jpeg") = photo(id, id).copy(title = name, mime = mime)
+
+    @Test fun rawDetection() {
+        assertEquals(true, named(1, "a.DNG").isRaw)
+        assertEquals(true, named(2, "a.bin", "image/x-adobe-dng").isRaw)
+        assertEquals(false, named(3, "a.jpg").isRaw)
+    }
+
+    @Test fun onlyExactNonRawCopiesArePreselected() {
+        val exact = DupCluster(true, listOf(named(1, "a.jpg"), named(2, "b.jpg"), named(3, "c.dng")))
+        assertEquals(listOf(2L), exact.defaultDelete.map { it.id })
+        val alike = DupCluster(false, listOf(named(4, "x.jpg"), named(5, "x.dng")))
+        assertEquals(emptyList<Photo>(), alike.defaultDelete)
+        assertEquals(true, alike.hasRaw)
+    }
 }

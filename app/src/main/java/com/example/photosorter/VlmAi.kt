@@ -34,8 +34,9 @@ object VlmAi {
     /** Sort-tab prompt: topic folder + caption (no trip naming). */
     const val SORT_PROMPT =
         "File this photo from a personal gallery. EXIF hints: %s\n" +
-            "Pick a 1-3 word lowercase kebab-case folder for its main subject, e.g. beach, dog, food, " +
-            "documents, screenshots, new-york, birthday, products. Use other if nothing fits.\n" +
+            "Pick ONE broad lowercase folder for its main subject. Prefer exactly one of: food, people, " +
+            "pets, nature, travel, city, home, shopping, documents, screenshots, vehicles, events, art, other. " +
+            "Only invent a new 1-2 word kebab-case folder if none of these fits at all.\n" +
             "Reply with ONLY two lines:\n" +
             "folder: <folder name>\n" +
             "description: <one short sentence, max 15 words>"

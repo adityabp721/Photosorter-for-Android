@@ -534,7 +534,19 @@ private fun DupsTab(model: AppModel) {
                         )
                     }
                 }
-                Text(model.dupStatus, style = MaterialTheme.typography.bodySmall, maxLines = 5)
+                Text(model.dupStatus, style = MaterialTheme.typography.bodySmall, maxLines = 6)
+                if (model.clusters.isNotEmpty() && !model.dupBusy) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (model.clusters.any { !it.exact }) {
+                            OutlinedButton(onClick = { model.selectLookAlikes(); confirmDelete = false }) {
+                                Text("Select look-alikes too")
+                            }
+                        }
+                        OutlinedButton(onClick = { model.clearSelection(); confirmDelete = false }) {
+                            Text("Clear selection")
+                        }
+                    }
+                }
                 if (model.clusters.isNotEmpty() && model.selected.isNotEmpty()) {
                     Button(
                         onClick = {
@@ -570,8 +582,11 @@ private fun ClusterCard(cluster: DupCluster, selected: Set<Long>, onToggle: (Lon
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             Text(
-                (if (cluster.exact) "Byte-identical copies" else "Looks identical (re-save / crop)") +
-                        " - ${cluster.photos.size} photos - ${humanBytes(cluster.reclaimableBytes)} reclaimable if keeping 1",
+                when {
+                    cluster.exact -> "Exact copies"
+                    cluster.hasRaw -> "RAW + JPEG of the same shot - review"
+                    else -> "Look-alikes (burst / edit / re-save) - review"
+                } + " - ${cluster.photos.size} photos - ${humanBytes(cluster.reclaimableBytes)} reclaimable if keeping 1",
                 style = MaterialTheme.typography.titleSmall
             )
             cluster.photos.forEach { p ->
