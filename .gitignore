@@ -4,7 +4,6 @@ build/
 .idea/
 local.properties
 native/models/
-native/llama.cpp/
 native/vlm/build-host/
 *.log
 .qwen-logs/

@@ -1,147 +1,105 @@
-# PhotoSorter (Android)
+# PhotoSorter for Android
 
-Three tools in one app:
+![PhotoSorter](docs/play-store/feature-graphic-1024x500.jpg)
 
-1. **Organize** — sorts the newest photos into folders under `Pictures/PhotoSorter/`:
-   - `screenshots` and `whatsapp` are recognized from where the file is saved (no AI call);
-   - every other photo: the AI reports its type (food, people, pets, documents, nature, city,
-     shopping, events, art...) and, only for clear travel photos, the country;
-   - trips: photos whose EXIF time-zone offset differs from the phone's home zone (or whose GPS
-     country differs from home) form runs; each run becomes one folder like `japan-trip` and takes
-     every photo from those days, food and people included. Named from GPS place lookups and the
-     AI's place answers, else `trip-sep-2026`.
-   Review the folders, then **Copy** (originals stay) or **Move** (copy + size check, then the
-   originals go to Android's trash after one system confirmation).
+An Android app that organizes your photo gallery with a vision-language model running **on the
+phone**: trips, food, screenshots, people and more, plus a fast duplicate finder. Built with
+Kotlin, Jetpack Compose and llama.cpp (C++ via JNI).
 
-2. **Sort & describe** — for the newest N photos it produces a **folder name** and a
-   **one-line description**, then **copies** the photo into `Pictures/PhotoSorter/<folder>/` and
-   saves the description three ways:
+- **Organize** — files photos into folders under `Pictures/PhotoSorter/`. Trips are detected from
+  the EXIF time-zone offset (and GPS when present), so every photo from a trip lands in one folder
+  like `japan-trip`, food and people shots included.
+- **Sort & describe** — copies each photo into a topic folder with a one-line AI caption.
+- **Duplicates** — scans a 20,000+ photo library in under 2 minutes; keeps originals, never
+  auto-selects RAW files, and sends removals to Android's 30-day trash.
+- **Private by default** — on-device AI (Qwen3-VL-2B) works offline. Google Gemini is an optional
+  cloud mode with your own API key, used only after an in-app consent.
+- **Runs in the background** — foreground service with a progress notification and a Stop button;
+  per-photo progress bars driven by a lock-free counter in the C++ inference layer.
 
-   1. a `<name>.description.txt` side file next to the copy (works everywhere),
-   2. the copy's EXIF `UserComment` tag (best-effort),
-   3. an in-app index (so re-runs skip already-filed photos and don't burn API quota).
+## How Organize decides
 
-   Originals are **never modified or moved** — Android scoped storage blocks apps from
-   reorganizing other apps' shared files, and copying is safer than moving.
+1. Screenshots and WhatsApp images are recognized from where they are saved (no AI call).
+2. For every other photo the model reports its **type** (food, people, pets, documents, nature,
+   city, shopping, events, art, travel, other) and, only for clear travel shots, the **country**.
+3. Photos taken in a different time zone than the phone's home zone at that date (or with a GPS
+   country different from home) form runs split by gaps over 2 days. Each run becomes a trip,
+   named by vote from GPS lookups and the model's place answers (`japan-trip`), else by month
+   (`trip-sep-2026`).
+4. Everything else goes to its type folder. You review the folders, then **Copy** (originals stay)
+   or **Move** (each copy is size-verified, then the originals go to the trash after one system
+   confirmation).
 
-3. **Duplicates - save storage** — scans the *entire* library on-device (no cloud, no key):
-   a byte-exact pass (SHA-256, only for files of equal size) plus a perceptual-hash pass over
-   system thumbnails that finds look-alikes (bursts, edits, re-saves, RAW+JPEG). ~21k photos take
-   under 2 minutes. Only **exact copies** are pre-selected; look-alike groups are for review
-   ("Select look-alikes too" if you want them), and RAW files are never auto-selected. Deleting
-   goes through one system confirmation. Nothing is deleted until you press the button twice.
+Folder rules live in `SmartFolders` ([Trips.kt](app/src/main/java/com/adityabalagere/photosorter/Trips.kt))
+and are covered by unit tests.
 
-## Background runs & progress
+## AI engines
 
-- Every job (sort, trip scan, organize, duplicate scan, model download) keeps running when you
-  leave the app: a foreground service shows a notification with a progress bar and a **Stop**
-  button, and a "finished" notification is posted if the app isn't open.
-- Each photo has its own progress bar (Sort tab and the per-photo list on the Trips tab), plus an
-  overall bar at the top. On-device steps without real progress are estimated from earlier photos
-  and show elapsed seconds.
+| Engine | Use | Notes |
+|---|---|---|
+| Qwen3-VL-2B via llama.cpp (default) | Subjects, places, captions, fully offline | ~1.6 GB download in-app; ~15 s per photo on a Galaxy S24 Ultra; Apache 2.0 |
+| MediaPipe EfficientNet-Lite0 (bundled) | Fallback categories when the model isn't downloaded | No place names |
+| Google Gemini (optional) | Cloud captions, can web-verify landmarks | Your API key; photos are uploaded (downscaled) |
 
-## AI modes
+`native/vlm/compare_vlm.cpp` is a host-side A/B harness that runs any two GGUF models on the same
+photos with the app's exact prompts. It was used to choose Qwen3-VL-2B: 2.2x faster than
+Qwen2.5-VL-3B, half the download, and a commercial-friendly license.
 
-| Mode | Quality | Cost | Privacy | Needs |
-|---|---|---|---|---|
-| Cloud: Gemini | Best captions, can web-verify landmarks/products | per request (free tier is tight) | images sent to the model | API key + internet |
-| On-device VLM: Qwen3-VL-2B via llama.cpp (Apache 2.0) | subjects + places fully offline (~15 s/photo on a Galaxy S24 Ultra) | free, one-time ~1.6 GB download | all on the phone | model files in `Android/data/com.adityabalagere.photosorter/files/llm/` (in-app button or adb push) |
-| On-device labels: MediaPipe EfficientNet-Lite0 | content categories only (food, animals...) - no place names | free, offline, repeatable | all on the phone | `labeler.tflite` in assets (bundled) |
+## Build
 
-### On-device VLM setup (one-time, ~1.6 GB)
+Requirements: Android Studio (or JDK 17+), Android SDK 36, NDK 29, CMake 3.22, an arm64 device
+(Android 8.0+).
 
-AI settings (top-right) has a **Download model** button. Or push the files with adb:
+```bash
+git clone --recursive https://github.com/adityabp721/Photosorter-for-Android.git
+cd Photosorter-for-Android
+./gradlew testDebugUnitTest      # unit tests
+./gradlew assembleDebug          # debug APK
+./gradlew bundleRelease          # release bundle (signed if keystore.properties exists)
+```
+
+Already cloned without `--recursive`? Run `git submodule update --init` (fetches the pinned
+llama.cpp). The native code is always built optimized: at the Debug default (-O0) one photo took
+minutes instead of seconds.
+
+To skip the in-app model download during development, push the files with adb:
 
 ```bash
 adb push Qwen3VL-2B-Instruct-Q4_K_M.gguf      /sdcard/Android/data/com.adityabalagere.photosorter/files/llm/
 adb push mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf /sdcard/Android/data/com.adityabalagere.photosorter/files/llm/
-# from https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF (Apache 2.0)
+# from https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF
 ```
-
-The earlier Qwen2.5-VL-3B (Qwen Research License, non-commercial) is no longer used; its files
-are deleted automatically once the new model is present. `native/vlm/compare_vlm.cpp` is a host
-A/B harness that runs any two GGUF models on the same photos with the app's exact prompts.
-
-The VLM is compiled into the app from `native/llama.cpp` (pinned commit) via NDK - arm64-v8a only.
-It reads each photo's pixels + EXIF date/GPS and answers with a folder name like `japan-trip`;
-it can also read text in photos (signs, headlines), which helps a lot with place identification.
-Expect ~15 s per photo on a recent flagship; the scan runs one photo at a time.
-
-The older labeler (`labeler.tflite`, bundled) remains as the automatic fallback when the VLM model
-files are missing - it only produces content categories, not place names.
-
-## Requirements
-
-- Android 8.0+ (API 26); tested against API 34 (Android 14/15).
-- [Android Studio](https://developer.android.com/studio) (Hedgehog or newer). Java 17 is bundled.
-- A free Gemini API key for cloud mode: https://aistudio.google.com/app/apikey
-
-## Setup
-
-1. Open this folder in Android Studio (File → Open → pick the `photosorter` folder).
-2. Build from the command line with `./gradlew assembleDebug`; unit tests: `./gradlew testDebugUnitTest`.
-   The native llama.cpp code is always compiled optimized (`-DCMAKE_BUILD_TYPE=Release`) - at the
-   Debug default (-O0) a single photo took minutes.
-3. For on-device mode: `labeler.tflite` is bundled in `app/src/main/assets/`.
-4. Run on a device/emulator (arm64).
-5. In the app: grant photo access, pick the tab.
-
-## Notes on deletion & permissions
-
-- On Android 11+ deleting uses `MediaStore.createDeleteRequest` (one system dialog per batch of up
-  to 1000 photos); on Android 8-10 the app deletes directly with its storage permission.
-- Trips "Move" mode deletes originals only after every copy is size-verified and you pressed the
-  confirm button twice and allowed the system dialog. Unfinished moves are remembered across restarts.
-- Photo locations: Android 10+ hides GPS in EXIF unless the app has "photo location" access
-  (`ACCESS_MEDIA_LOCATION`, requested with photo access) - the Trips tab relies on it.
-- The app's own copies in `Pictures/PhotoSorter/` are excluded from Sort/Trips scans.
-- If you granted *partial* photo access ("Select photos"), the app can only see — and clean up —
-  the selected subset. Use "Allow access to all photos" for a full cleanup.
-- Saved-space estimates come from `MediaStore.SIZE`; if a file's size reads as 0 you'll see
-  "size unknown" for that item.
-
-## Cost & quotas (cloud mode)
-
-- Both the Sort and Trips tabs cost ~1 API call per photo (images + EXIF hints in one request).
-  The free Gemini tier is limited (~250 requests/day for flash models - check current numbers), so
-  use "Max photos" to run the Trips scan in batches; already-filed photos are skipped on re-runs.
-- Images are downscaled to ~512 px JPEG before upload to keep cost low;
-  web-search grounding adds a bit per call and requires a model that supports it (the app retries
-  automatically without the tool if the model or plan rejects it).
-- Quotas: Gemini's free tier is limited and has been shrinking (check the current numbers at
-  https://ai.google.dev/gemini-api/docs/rate-limits). For big batches use a paid plan or
-  on-device mode.
-
-## Privacy
-
-- Your key is kept in plain app SharedPreferences (fine for a personal local app; switch to
-  EncryptedSharedPreferences if you distribute the app). On-device mode needs no key at all.
-- In cloud mode images go only to the model you specify. In on-device mode nothing leaves the phone.
 
 ## Project layout
 
 ```
 app/src/main/java/com/adityabalagere/photosorter/
-  PhotoSorterApp.kt Application: one AppModel per process (jobs survive the activity)
-  WorkService.kt    foreground service + wake lock while a job runs, progress notification
-  Notifications.kt  channels, progress/result notifications, JobProgress
-  MainActivity.kt   Compose UI (three tabs: Sort & describe | Trips | Duplicates)
-  AppModel.kt       state, permissions, job orchestration (worker pool), per-photo progress, delete flow
-  PhotoRepo.kt      MediaStore queries (recent N + whole library with sizes)
-  Trips.kt          folder grouping + AI answer normalization ("japan-trip"/"japan" -> one group)
-  Gemini.kt         cloud: per-photo vision classification (Sort prompt + Trips prompt), optional google_search
-  LocalAi.kt        offline fallback: MediaPipe labeler -> content categories
-  VlmAi.kt          offline primary: Qwen2.5-VL via llama.cpp JNI (model files in external dir)
-  ImageTools.kt     downscale helpers (base64/bytes for cloud+VLM, small EXIF-rotated for hashing)
-  Duplicates.kt     SHA-256 exact pass + 64-bit DCT perceptual pass, clusters, delete
-  Organizer.kt      copy/move to Pictures/PhotoSorter/<folder>/, sidecar, EXIF, index, open-copy
-
-app/src/main/cpp/       JNI bridge (vlm_jni.cpp) + CMake wiring
-native/llama.cpp        pinned llama.cpp checkout (built for arm64-v8a by the NDK)
+  PhotoSorterApp.kt   one AppModel per process, so jobs survive the activity
+  AppModel.kt         state, permissions, worker pool, per-photo progress, copy/move/trash flow
+  WorkService.kt      foreground service (mediaProcessing / dataSync) + progress notification
+  MainActivity.kt     scaffold, navigation, permission and delete-request launchers
+  Screens.kt          Sort, Organize and Duplicates screens
+  Components.kt       shared UI: job card, photo rows, AI settings sheet, welcome screen
+  Trips.kt            SmartFolders (types, trips, folder rules) + grouping
+  VlmAi.kt            on-device model: prompts, answer parsing, JNI calls
+  Gemini.kt           optional cloud classification with retries and quota handling
+  LocalAi.kt          MediaPipe fallback labeler
+  Duplicates.kt       SHA-256 on same-size files + perceptual hash of thumbnails, keep rules
+  Organizer.kt        copies into Pictures/PhotoSorter/, verification, filed-photo index
+  PhotoRepo.kt, ImageTools.kt, Thumbs.kt, Notifications.kt, Theme.kt
+app/src/main/cpp/vlm_jni.cpp   JNI bridge to llama.cpp + mtmd (progress counter, abort flag)
+native/llama.cpp               llama.cpp, pinned as a git submodule
+native/vlm/                    host test and A/B comparison tools
+docs/                          privacy policy and Play Store kit
 ```
 
-## Ideas / upgrade paths
+## Permissions
 
-- Better offline captions: small VLM (Gemma 3n E4B / LLaVA 7B Q4 GGUF via llama.cpp) behind `LocalAi.kt`.
-- Blur / low-quality filter as a third "safe to delete" category; screenshots-only category.
-- Secure key storage (EncryptedSharedPreferences), i18n, portrait lock during a run.
+Photos and videos (whole library), photo locations (GPS for trips), notifications (progress).
+With partial photo access the app only sees the photos you selected. See
+[docs/privacy-policy.html](docs/privacy-policy.html) for what leaves the device and when.
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE). Third-party components are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
