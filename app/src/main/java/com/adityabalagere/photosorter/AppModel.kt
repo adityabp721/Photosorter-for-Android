@@ -325,8 +325,23 @@ class AppModel(app: Context) {
         else -> null
     }
 
-    /** Classifies one photo, updating [row]'s progress bar along the way. */
+    /**
+     * Classifies one photo, updating [row]'s progress bar along the way. Low-level failures inside an
+     * AI library (an Error such as ExceptionInInitializerError or UnsatisfiedLinkError) become an
+     * ordinary exception, so one bad photo or engine fails that photo instead of crashing the app.
+     */
     private suspend fun analyze(p: Photo, engine: Engine, trip: Boolean, row: Row): AiResult =
+        try {
+            analyzeUnchecked(p, engine, trip, row)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw e
+        } catch (e: Throwable) {
+            throw IllegalStateException("AI engine failed: ${e.cause?.message ?: e.message ?: e.javaClass.simpleName}", e)
+        }
+
+    private suspend fun analyzeUnchecked(p: Photo, engine: Engine, trip: Boolean, row: Row): AiResult =
         when (engine) {
             Engine.LABELS -> {
                 row.show("reading photo", 0.15f)
@@ -559,8 +574,8 @@ class AppModel(app: Context) {
         tripBusy = true
         tripStopping = false
         _trips.value = emptyList()
-        beginJob("Scanning photos for trips")
-        var title = "Trip scan finished"
+        beginJob("Organizing photos")
+        var title = "Organizing finished"
         var summary = ""
         try {
             val limit = tripLimitText.toIntOrNull()?.coerceIn(1, 20000) ?: 200
@@ -578,7 +593,7 @@ class AppModel(app: Context) {
                 jobProgress(i.toLong(), unfiled.size.toLong(), "Reading location data")
             }
             if (tripStopping) {
-                title = "Trip scan stopped"
+                title = "Organizing stopped"
                 summary = "Stopped."
                 return@launch
             }
@@ -643,7 +658,7 @@ class AppModel(app: Context) {
             }
             val scanned = photos.count { results.containsKey(it.id) }
             val missing = photos.size - scanned
-            if (tripStopping) title = "Trip scan stopped"
+            if (tripStopping) title = "Organizing stopped"
             summary = (quotaMsg?.let { "$it " } ?: "") +
                 "Scanned $scanned/${photos.size} photos into ${groups.size} folders." +
                 (if (missing > 0) " $missing not scanned yet - press Scan photos again to do just those." else "") +
@@ -652,7 +667,7 @@ class AppModel(app: Context) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            title = "Trip scan failed"
+            title = "Organizing failed"
             summary = "Scan failed: ${errText(e)}"
         } finally {
             tripBusy = false
@@ -751,7 +766,7 @@ class AppModel(app: Context) {
                 summary += " Originals were left in place."
             }
             tripStatus = summary
-            endJob(if (move && toDelete.isNotEmpty()) "Move: confirm deleting originals" else "Organizing finished", summary)
+            endJob(if (move && toDelete.isNotEmpty()) "Move: confirm sending originals to trash" else "Organizing finished", summary)
         }
     }
 

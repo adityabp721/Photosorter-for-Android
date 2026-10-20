@@ -16,3 +16,8 @@
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+
+# MediaPipe logs through Flogger, which finds its caller by walking the stack for its own
+# class names - renamed classes crash at startup ("no caller found on the stack").
+-keep class com.google.common.flogger.** { *; }
+-dontwarn com.google.common.flogger.**
