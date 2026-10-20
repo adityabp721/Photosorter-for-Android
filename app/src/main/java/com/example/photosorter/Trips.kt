@@ -88,7 +88,7 @@ object Trips {
 
 /**
  * Turns per-photo AI answers (type + place) into folders:
- * - screenshots and documents always go to their own folder;
+ * - screenshots, WhatsApp images and documents always go to their own folder;
  * - photos taken AWAY from home (EXIF time-zone offset differs from the phone's home zone at that
  *   date, or GPS country differs from the home country) are split into trips - runs of away photos
  *   with no gap over [TRIP_GAP_MS] - and every photo of a trip (food, people, sights...) goes to
@@ -156,10 +156,12 @@ object SmartFolders {
         zone: java.util.TimeZone = java.util.TimeZone.getDefault(),
     ): Map<Long, String> {
         val scanned = photos.filter { results.containsKey(it.id) }
-        fun typeOf(p: Photo) = if (p.isScreenshot) "screenshots" else results.getValue(p.id).type.ifEmpty {
-            normalizeType(results.getValue(p.id).folder)
+        fun typeOf(p: Photo) = when {
+            p.isScreenshot -> "screenshots"
+            p.isWhatsApp -> "whatsapp"
+            else -> results.getValue(p.id).type.ifEmpty { normalizeType(results.getValue(p.id).folder) }
         }
-        fun fixedFolder(t: String) = t == "screenshots" || t == "documents"
+        fun fixedFolder(t: String) = t == "screenshots" || t == "documents" || t == "whatsapp"
         fun away(p: Photo): Boolean {
             if (p.dateTakenMs <= 0) return false
             val off = p.utcOffsetMin

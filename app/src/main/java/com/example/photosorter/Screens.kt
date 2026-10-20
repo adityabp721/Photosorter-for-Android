@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.Chat
 import androidx.compose.material.icons.outlined.Screenshot
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Pets
@@ -175,11 +176,11 @@ fun TripsScreen(model: AppModel, openSettings: () -> Unit) {
                 CountField("Newest photos to scan", model.tripLimitText, { model.tripLimitText = it }, Modifier.fillMaxWidth())
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     SegmentedButton(
-                        selected = !model.tripMove, onClick = { if (!model.tripBusy) model.tripMove = false },
+                        selected = !model.tripMove, onClick = { if (!model.tripBusy) { model.tripMove = false; model.savePrefs() } },
                         shape = SegmentedButtonDefaults.itemShape(0, 2),
                     ) { Text("Copy") }
                     SegmentedButton(
-                        selected = model.tripMove, onClick = { if (!model.tripBusy) model.tripMove = true },
+                        selected = model.tripMove, onClick = { if (!model.tripBusy) { model.tripMove = true; model.savePrefs() } },
                         shape = SegmentedButtonDefaults.itemShape(1, 2),
                     ) { Text("Move") }
                 }
@@ -203,8 +204,8 @@ fun TripsScreen(model: AppModel, openSettings: () -> Unit) {
                 }
                 StatusLine(model.tripStatus)
                 HowItWorks(
-                    "The AI tells what each photo shows (food, people, pets, documents...). Screenshots are recognized " +
-                        "from where they are saved. Photos taken in another time zone or country form trips: every " +
+                    "The AI tells what each photo shows (food, people, pets, documents...). Screenshots and WhatsApp " +
+                        "images are recognized from where they are saved and get their own folders. Photos taken in another time zone or country form trips: every " +
                         "photo from those days goes to one folder like japan-trip, named from landmarks the AI " +
                         "recognizes or the GPS. Review the folders, then copy or move them into Pictures/PhotoSorter/. " +
                         "Already-filed photos are skipped, so you can work through a big library in batches."
@@ -276,6 +277,7 @@ private fun TripCard(trip: TripCluster) {
         isTrip -> Icons.Outlined.Flight
         trip.folder == "food" -> Icons.Outlined.Restaurant
         trip.folder == "screenshots" -> Icons.Outlined.Screenshot
+        trip.folder == "whatsapp" -> Icons.Outlined.Chat
         trip.folder == "people" -> Icons.Outlined.People
         trip.folder == "pets" -> Icons.Outlined.Pets
         trip.folder == "documents" -> Icons.Outlined.Description
@@ -301,7 +303,7 @@ private fun TripCard(trip: TripCluster) {
                         fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "${trip.photos.size} photos  ·  ${trip.dateRangeLabel}",
+                        "${trip.photos.size} photo${if (trip.photos.size == 1) "" else "s"}  ·  ${trip.dateRangeLabel}",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -443,7 +445,7 @@ private fun ClusterCard(cluster: DupCluster, selected: Set<Long>, onToggle: (Lon
                 StatusPill(label, pillBg, pillFg)
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "${cluster.photos.size} photos" + if (toFree > 0) "  ·  frees ${humanBytes(toFree)}" else "",
+                    "${cluster.photos.size} photo${if (cluster.photos.size == 1) "" else "s"}" + if (toFree > 0) "  ·  frees ${humanBytes(toFree)}" else "",
                     style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = { onOpen(0) }) { Text("Compare") }

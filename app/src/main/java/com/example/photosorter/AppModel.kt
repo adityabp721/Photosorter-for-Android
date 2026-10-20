@@ -597,9 +597,12 @@ class AppModel(app: Context) {
             jobProgress(0, todo.size.toLong(), "")
             pool(todo, parallel, { tripStopping }) { row ->
                 try {
-                    // screenshots are recognized from where they live - no AI call needed
-                    val ai = if (row.photo.isScreenshot) screenshotResult(row.photo)
-                    else analyze(row.photo, engine, trip = true, row)
+                    // screenshots and WhatsApp images are recognized from where they live - no AI call needed
+                    val ai = when {
+                        row.photo.isScreenshot -> screenshotResult(row.photo)
+                        row.photo.isWhatsApp -> AiResult("whatsapp", "Image received on WhatsApp", "whatsapp")
+                        else -> analyze(row.photo, engine, trip = true, row)
+                    }
                     tripResults[row.photo.id] = ai
                     onMain {
                         row.state = RowState.Scanned(ai)

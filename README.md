@@ -2,24 +2,16 @@
 
 Three tools in one app:
 
-1. **Trips - group by trip** — organizes the gallery into per-trip folders like `japan-trip`,
-   `swiss-trip`. How it works:
-
-   1. reads the library (newest first) and each photo's EXIF GPS location,
-   2. **the AI scans every photo** — image + date + GPS coordinates go to the model, which returns
-      a folder like `japan-trip` (Tokyo and Kyoto photos both land there) or a category for
-      non-travel photos (`food`, `screenshots`, ...). Slightly different answers are normalized
-      into one folder ("japan-trip" / "japan" → same group),
-   3. you review the groups, then press **Move** or **Copy**:
-      - *Copy* — files a copy into `Pictures/PhotoSorter/<folder>/`, originals stay put.
-      - *Move* — copies everything first and **verifies each copy's size**; then Android asks
-        once ("Allow PhotoSorter to delete N photos?") to delete the originals. If you deny or the
-        app is closed, the move can be finished later from the Trips tab ("Finish move"), or you
-        can keep both. A failed copy never deletes its original.
-
-   Already-filed photos are skipped (shared index with tab 2), so you can run the scan in batches
-   across days to stay within API quotas. On-device mode can only sort by content categories —
-   use cloud mode for real place names.
+1. **Organize** — sorts the newest photos into folders under `Pictures/PhotoSorter/`:
+   - `screenshots` and `whatsapp` are recognized from where the file is saved (no AI call);
+   - every other photo: the AI reports its type (food, people, pets, documents, nature, city,
+     shopping, events, art...) and, only for clear travel photos, the country;
+   - trips: photos whose EXIF time-zone offset differs from the phone's home zone (or whose GPS
+     country differs from home) form runs; each run becomes one folder like `japan-trip` and takes
+     every photo from those days, food and people included. Named from GPS place lookups and the
+     AI's place answers, else `trip-sep-2026`.
+   Review the folders, then **Copy** (originals stay) or **Move** (copy + size check, then the
+   originals go to Android's trash after one system confirmation).
 
 2. **Sort & describe** — for the newest N photos it produces a **folder name** and a
    **one-line description**, then **copies** the photo into `Pictures/PhotoSorter/<folder>/` and
@@ -53,23 +45,27 @@ Three tools in one app:
 | Mode | Quality | Cost | Privacy | Needs |
 |---|---|---|---|---|
 | Cloud: Gemini | Best captions, can web-verify landmarks/products | per request (free tier is tight) | images sent to the model | API key + internet |
-| On-device VLM: Qwen2.5-VL-3B via llama.cpp | real place/trip identification fully offline (~10-30 s/photo) | free, one-time ~3.3 GB download | all on the phone | model files in `Android/data/com.example.photosorter/files/llm/` (in-app button or adb push) |
+| On-device VLM: Qwen3-VL-2B via llama.cpp (Apache 2.0) | subjects + places fully offline (~15 s/photo on a Galaxy S24 Ultra) | free, one-time ~1.6 GB download | all on the phone | model files in `Android/data/com.example.photosorter/files/llm/` (in-app button or adb push) |
 | On-device labels: MediaPipe EfficientNet-Lite0 | content categories only (food, animals...) - no place names | free, offline, repeatable | all on the phone | `labeler.tflite` in assets (bundled) |
 
-### On-device VLM setup (one-time, ~3.3 GB)
+### On-device VLM setup (one-time, ~1.6 GB)
 
-The Trips tab has a **Download local AI model** button. Or push the files with adb:
+AI settings (top-right) has a **Download model** button. Or push the files with adb:
 
 ```bash
-adb push Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf /sdcard/Android/data/com.example.photosorter/files/llm/
-adb push mmproj-F16.gguf                  /sdcard/Android/data/com.example.photosorter/files/llm/
-# from https://huggingface.co/unsloth/Qwen2.5-VL-3B-Instruct-GGUF
+adb push Qwen3VL-2B-Instruct-Q4_K_M.gguf      /sdcard/Android/data/com.example.photosorter/files/llm/
+adb push mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf /sdcard/Android/data/com.example.photosorter/files/llm/
+# from https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF (Apache 2.0)
 ```
+
+The earlier Qwen2.5-VL-3B (Qwen Research License, non-commercial) is no longer used; its files
+are deleted automatically once the new model is present. `native/vlm/compare_vlm.cpp` is a host
+A/B harness that runs any two GGUF models on the same photos with the app's exact prompts.
 
 The VLM is compiled into the app from `native/llama.cpp` (pinned commit) via NDK - arm64-v8a only.
 It reads each photo's pixels + EXIF date/GPS and answers with a folder name like `japan-trip`;
 it can also read text in photos (signs, headlines), which helps a lot with place identification.
-Expect ~10-30 s per photo on a modern phone; the scan runs one photo at a time.
+Expect ~15 s per photo on a recent flagship; the scan runs one photo at a time.
 
 The older labeler (`labeler.tflite`, bundled) remains as the automatic fallback when the VLM model
 files are missing - it only produces content categories, not place names.

@@ -38,7 +38,7 @@ class SmartFoldersTest {
         assertEquals(listOf("japan-trip"), (1L..5L).map { f.getValue(it) }.distinct())
         assertEquals("food", f[6L]); assertEquals("food", f[7L])
         assertEquals("screenshots", f[8L])
-        assertEquals("people", f[9L])
+        assertEquals("whatsapp", f[9L])
     }
 
     @Test fun unnamedTripGetsMonthName() {

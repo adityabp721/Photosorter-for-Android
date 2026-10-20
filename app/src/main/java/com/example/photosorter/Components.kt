@@ -348,13 +348,13 @@ fun AiSettingsSheet(model: AppModel, onDismiss: () -> Unit) {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 SegmentedButton(
                     selected = model.mode == "local",
-                    onClick = { if (!model.anyBusy) model.mode = "local" },
+                    onClick = { if (!model.anyBusy) { model.mode = "local"; model.savePrefs() } },
                     shape = SegmentedButtonDefaults.itemShape(0, 2),
                     icon = { SegmentedButtonDefaults.Icon(model.mode == "local") { Icon(Icons.Outlined.PhoneAndroid, null, Modifier.size(18.dp)) } },
                 ) { Text("On-device") }
                 SegmentedButton(
                     selected = model.mode == "cloud",
-                    onClick = { if (!model.anyBusy) model.mode = "cloud" },
+                    onClick = { if (!model.anyBusy) { model.mode = "cloud"; model.savePrefs() } },
                     shape = SegmentedButtonDefaults.itemShape(1, 2),
                     icon = { SegmentedButtonDefaults.Icon(model.mode == "cloud") { Icon(Icons.Outlined.Cloud, null, Modifier.size(18.dp)) } },
                 ) { Text("Cloud") }
