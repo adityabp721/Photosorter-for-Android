@@ -31,6 +31,14 @@ import androidx.compose.material.icons.outlined.Luggage
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.Screenshot
+import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.Pets
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Park
+import androidx.compose.material.icons.outlined.ShoppingBag
+import androidx.compose.material.icons.outlined.Celebration
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -162,7 +170,7 @@ fun TripsScreen(model: AppModel, openSettings: () -> Unit) {
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item(key = "controls") {
-            SectionCard(Icons.Outlined.Luggage, "Trips", "Groups photos into folders like japan-trip") {
+            SectionCard(Icons.Outlined.Luggage, "Organize", "Trips, food, screenshots, people and more") {
                 EngineChip(model, openSettings)
                 CountField("Newest photos to scan", model.tripLimitText, { model.tripLimitText = it }, Modifier.fillMaxWidth())
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -195,10 +203,11 @@ fun TripsScreen(model: AppModel, openSettings: () -> Unit) {
                 }
                 StatusLine(model.tripStatus)
                 HowItWorks(
-                    "The AI looks at each photo plus its date and GPS location and picks a folder: the country or " +
-                        "region + \"-trip\" for travel photos, a category (food, documents...) for the rest. " +
-                        "Review the groups, then copy or move them into Pictures/PhotoSorter/. Already-filed photos " +
-                        "are skipped, so you can work through a big library in batches."
+                    "The AI tells what each photo shows (food, people, pets, documents...). Screenshots are recognized " +
+                        "from where they are saved. Photos taken in another time zone or country form trips: every " +
+                        "photo from those days goes to one folder like japan-trip, named from landmarks the AI " +
+                        "recognizes or the GPS. Review the folders, then copy or move them into Pictures/PhotoSorter/. " +
+                        "Already-filed photos are skipped, so you can work through a big library in batches."
                 )
             }
         }
@@ -219,11 +228,11 @@ fun TripsScreen(model: AppModel, openSettings: () -> Unit) {
                             )
                         }
                         Text(
-                            "${pd.photos.size} originals still need deleting - their verified copies are already in Pictures/PhotoSorter/.",
+                            "${pd.photos.size} originals still need to go to the trash - their verified copies are already in Pictures/PhotoSorter/.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { model.retryDelete() }, enabled = !model.anyBusy) { Text("Delete originals") }
+                            Button(onClick = { model.retryDelete() }, enabled = !model.anyBusy) { Text("Move originals to trash") }
                             TextButton(onClick = { model.cancelDelete() }) { Text("Keep both") }
                         }
                     }
@@ -254,7 +263,7 @@ fun TripsScreen(model: AppModel, openSettings: () -> Unit) {
             }
         } else if (model.trips.isEmpty()) {
             item(key = "empty") {
-                EmptyState(Icons.Outlined.Flight, "No trips yet", "Press Scan photos to let the AI group your newest pictures.")
+                EmptyState(Icons.Outlined.Luggage, "Nothing organized yet", "Press Scan photos to sort your newest pictures into folders.")
             }
         }
     }
@@ -262,7 +271,19 @@ fun TripsScreen(model: AppModel, openSettings: () -> Unit) {
 
 @Composable
 private fun TripCard(trip: TripCluster) {
-    val isTrip = trip.folder.endsWith("-trip")
+    val isTrip = trip.folder.endsWith("-trip") || trip.folder.startsWith("trip-")
+    val icon = when {
+        isTrip -> Icons.Outlined.Flight
+        trip.folder == "food" -> Icons.Outlined.Restaurant
+        trip.folder == "screenshots" -> Icons.Outlined.Screenshot
+        trip.folder == "people" -> Icons.Outlined.People
+        trip.folder == "pets" -> Icons.Outlined.Pets
+        trip.folder == "documents" -> Icons.Outlined.Description
+        trip.folder == "nature" -> Icons.Outlined.Park
+        trip.folder == "shopping" -> Icons.Outlined.ShoppingBag
+        trip.folder == "events" -> Icons.Outlined.Celebration
+        else -> Icons.Outlined.Folder
+    }
     Card(
         Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
@@ -270,7 +291,7 @@ private fun TripCard(trip: TripCluster) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    if (isTrip) Icons.Outlined.Flight else Icons.Outlined.Folder, null,
+                    icon, null,
                     tint = if (isTrip) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
                 )
                 Spacer(Modifier.width(8.dp))
@@ -331,13 +352,18 @@ fun DupsScreen(model: AppModel) {
         AlertDialog(
             onDismissRequest = { confirm = false },
             icon = { Icon(Icons.Outlined.DeleteOutline, null) },
-            title = { Text("Delete ${model.selected.size} photos?") },
-            text = { Text("Frees about ${humanBytes(model.selectedBytes)}. Android will ask you to confirm once more.") },
+            title = { Text("Move ${model.selected.size} photos to the trash?") },
+            text = {
+                Text(
+                    "They stay in Android's trash for 30 days, so you can restore them. After that about " +
+                        "${humanBytes(model.selectedBytes)} is freed. Android will ask you to confirm once more."
+                )
+            },
             confirmButton = {
                 Button(
                     onClick = { confirm = false; model.deleteSelected() },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                ) { Text("Delete") }
+                ) { Text("Move to trash") }
             },
             dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
         )
@@ -380,7 +406,7 @@ fun DupsScreen(model: AppModel) {
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                 ) {
                     ButtonIcon(Icons.Outlined.DeleteOutline)
-                    Text("Delete ${model.selected.size} selected  ·  ${humanBytes(model.selectedBytes)}")
+                    Text("Trash ${model.selected.size} selected  ·  ${humanBytes(model.selectedBytes)}")
                 }
             }
         }

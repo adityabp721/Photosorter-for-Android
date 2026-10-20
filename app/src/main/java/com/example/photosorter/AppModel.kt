@@ -106,6 +106,9 @@ class AppModel(app: Context) {
     var tripStatus: String by mutableStateOf("")
     var tripLimitText: String by mutableStateOf("200")
     var tripMove: Boolean by mutableStateOf(sp.getBoolean("tripmove", false))
+    /** On-device mode: also look up country names for GPS photos (sends coordinates only to Google). */
+    var geocodeLocal: Boolean by mutableStateOf(sp.getBoolean("geocode", false))
+    private val geoNames = java.util.concurrent.ConcurrentHashMap<Long, String>()
     private val _trips = mutableStateOf<List<TripCluster>>(emptyList())
     val trips: List<TripCluster> get() = _trips.value
     private val _tripRows = mutableStateOf<List<Row>>(emptyList())
@@ -211,6 +214,7 @@ class AppModel(app: Context) {
             .putString("mode", mode)
             .putBoolean("search", useWebSearch)
             .putBoolean("tripmove", tripMove)
+            .putBoolean("geocode", geocodeLocal)
             .apply()
     }
 
@@ -385,8 +389,36 @@ class AppModel(app: Context) {
         if (p.latitude != null && p.longitude != null) {
             sb.append("GPS: ").append(String.format(java.util.Locale.US, "%.5f, %.5f", p.latitude, p.longitude)).append(". ")
         }
+        geoNames[p.id]?.let { sb.append("Place from GPS: $it. ") }
         sb.append("Pixel size: ${p.width}x${p.height}.")
         return sb.toString()
+    }
+
+    /** Country names for GPS photos via the phone's geocoder (cached per ~10 km cell). */
+    private suspend fun lookupCountries(photos: List<Photo>) = withContext(Dispatchers.IO) {
+        if (!(mode == "cloud" || geocodeLocal) || !android.location.Geocoder.isPresent()) return@withContext
+        val geo = android.location.Geocoder(ctx, java.util.Locale.ENGLISH)
+        val cache = HashMap<String, String?>()
+        for (p in photos) {
+            val lat = p.latitude ?: continue
+            val lon = p.longitude ?: continue
+            val key = String.format(java.util.Locale.US, "%.1f,%.1f", lat, lon)
+            val country = cache.getOrPut(key) {
+                @Suppress("DEPRECATION")
+                runCatching { geo.getFromLocation(lat, lon, 1)?.firstOrNull()?.countryName }.getOrNull()
+            }
+            if (country != null) geoNames[p.id] = country
+        }
+    }
+
+    private val homeCountry: String?
+        get() = java.util.Locale.getDefault().getDisplayCountry(java.util.Locale.ENGLISH).ifBlank { null }
+
+    /** Samsung/Pixel screenshots carry the app in the name: "Screenshot_20261019_173200_Amazon Shopping.jpg". */
+    private fun screenshotResult(p: Photo): AiResult {
+        val app = Regex("^Screenshot_\\d{8}[-_]\\d{6}_(.+)\\.\\w+$", RegexOption.IGNORE_CASE).find(p.title)
+            ?.groupValues?.get(1)?.trim()
+        return AiResult("screenshots", if (app.isNullOrBlank()) "Screenshot" else "Screenshot from $app", "screenshots")
     }
 
     private val hasLocation: Boolean
@@ -395,8 +427,8 @@ class AppModel(app: Context) {
     private suspend fun withGps(photos: List<Photo>, onProgress: suspend (Int) -> Unit): List<Photo> {
         val out = ArrayList<Photo>(photos.size)
         for ((i, p) in photos.withIndex()) {
-            val g = withContext(Dispatchers.IO) { ImageTools.gpsFor(resolver, p.uri, original = hasLocation) }
-            out.add(if (g != null) p.copy(latitude = g[0], longitude = g[1]) else p)
+            val e = withContext(Dispatchers.IO) { ImageTools.exifInfo(resolver, p.uri, original = hasLocation) }
+            out.add(p.copy(latitude = e.lat, longitude = e.lon, utcOffsetMin = e.utcOffsetMin))
             if (i % 50 == 0) onProgress(i)
         }
         return out
@@ -546,6 +578,7 @@ class AppModel(app: Context) {
                 summary = "Stopped."
                 return@launch
             }
+            lookupCountries(photos)
             val rowsNew = photos.map { p ->
                 Row(p, null).apply { tripResults[p.id]?.let { state = RowState.Scanned(it) } }
             }
@@ -564,12 +597,14 @@ class AppModel(app: Context) {
             jobProgress(0, todo.size.toLong(), "")
             pool(todo, parallel, { tripStopping }) { row ->
                 try {
-                    val ai = analyze(row.photo, engine, trip = true, row)
+                    // screenshots are recognized from where they live - no AI call needed
+                    val ai = if (row.photo.isScreenshot) screenshotResult(row.photo)
+                    else analyze(row.photo, engine, trip = true, row)
                     tripResults[row.photo.id] = ai
                     onMain {
                         row.state = RowState.Scanned(ai)
                         done++
-                        tripStatus = "Scanned ${done + failed} of ${todo.size} - last: ${ai.folder}"
+                        tripStatus = "Scanned ${done + failed} of ${todo.size} - last: ${ai.type.ifEmpty { ai.folder }}"
                         jobProgress((done + failed).toLong(), todo.size.toLong(), "${row.photo.title} -> ${ai.folder}")
                     }
                 } catch (e: StoppedException) {
@@ -590,8 +625,15 @@ class AppModel(app: Context) {
             }
             rowsNew.forEach { if (it.state is RowState.Progress) it.state = RowState.Todo }
             val results = synchronized(tripResults) { HashMap(tripResults) }
-            val groups = Trips.group(photos, results)
+            val folders = SmartFolders.assign(photos, results, HashMap(geoNames), homeCountry)
+            val groups = Trips.group(photos, results, folders)
             _trips.value = groups
+            // show each photo's final folder (a food photo from a trip lands in that trip)
+            rowsNew.forEach { r ->
+                val s = r.state
+                val f = folders[r.photo.id]
+                if (s is RowState.Scanned && f != null) r.state = RowState.Scanned(s.ai.copy(folder = f))
+            }
             val scanned = photos.count { results.containsKey(it.id) }
             val missing = photos.size - scanned
             if (tripStopping) title = "Trip scan stopped"
@@ -718,7 +760,8 @@ class AppModel(app: Context) {
         pendingDelete = PendingDelete(photos, purpose)
         if (Build.VERSION.SDK_INT >= 30) {
             deleteRequest = try {
-                MediaStore.createDeleteRequest(resolver, photos.take(DELETE_CHUNK).map { it.uri }).intentSender
+                // to the trash, not gone: Android keeps trashed photos for 30 days
+                MediaStore.createTrashRequest(resolver, photos.take(DELETE_CHUNK).map { it.uri }, true).intentSender
             } catch (e: Exception) {
                 reportDelete(purpose, "Could not ask Android to delete: ${errText(e)}")
                 null
@@ -783,13 +826,13 @@ class AppModel(app: Context) {
         if (pd.purpose == "move") saveMoveIds(remaining.map { it.id })
         val msg = when {
             !ok && gone.isEmpty() ->
-                "Delete was not confirmed - nothing deleted. Press the delete button to try again, or keep both."
+                "Not confirmed - nothing was removed. Press the button to try again, or keep both."
             pd.purpose == "move" ->
-                "Move finished: deleted ${gone.size} originals, freed about ${humanBytes(freed)}. " +
-                    "Your photos are now in Pictures/PhotoSorter/." +
-                    (if (stillThere.isNotEmpty() && ok) " ${stillThere.size} could not be deleted." else "")
+                "Move finished: ${gone.size} originals went to the trash (kept 30 days, then about " +
+                    "${humanBytes(freed)} is freed). Your photos are now in Pictures/PhotoSorter/." +
+                    (if (stillThere.isNotEmpty() && ok) " ${stillThere.size} could not be removed." else "")
             else ->
-                "Deleted ${gone.size} photos, about ${humanBytes(freed)} freed." +
+                "Moved ${gone.size} photos to the trash - restorable for 30 days, then about ${humanBytes(freed)} is freed." +
                     (if (_clusters.value.isEmpty()) " All duplicate groups cleared." else "")
         }
         reportDelete(pd.purpose, msg)
@@ -838,16 +881,17 @@ class AppModel(app: Context) {
             val files = listOf(VlmAi.MODEL_NAME to VlmAi.MODEL_URL, VlmAi.MMPROJ_NAME to VlmAi.MMPROJ_URL)
             val dir = VlmAi.modelDir(ctx)
             val freeBytes = runCatching { StatFs(dir.path).availableBytes }.getOrDefault(-1L)
-            if (freeBytes in 0 until 3_600_000_000L) {
-                summary = "Not enough free space: the model needs about 3.3 GB (free: ${humanBytes(freeBytes)})."
+            if (freeBytes in 0 until VlmAi.DOWNLOAD_BYTES + 200_000_000L) {
+                summary = "Not enough free space: the model needs about ${humanBytes(VlmAi.DOWNLOAD_BYTES)} (free: ${humanBytes(freeBytes)})."
                 return@launch
             }
             for ((i, f) in files.withIndex()) {
                 val (name, url) = f
                 val target = File(dir, name)
-                if (target.length() > 100_000_000L) continue
+                if (target.length() > 300_000_000L) continue
                 withContext(Dispatchers.IO) { downloadOne(url, target, "(${i + 1}/${files.size})") }
             }
+            VlmAi.removeLegacyFiles(ctx)
             summary = "Model ready. ${VlmAi.statusText(ctx)}"
         } catch (e: StoppedException) {
             summary = "Download paused - press Download again to resume where it stopped."
@@ -948,9 +992,9 @@ class AppModel(app: Context) {
             } else {
                 val exact = found.filter { it.exact }
                 val alike = found.size - exact.size
-                "Found ${exact.size} groups of exact copies (about ${humanBytes(exact.sumOf { it.reclaimableBytes })}, " +
-                    "extra copies pre-selected) and $alike groups of look-alikes - bursts, edits, RAW+JPEG - " +
-                    "which are NOT selected; review them and tap the ones to delete."
+                "Found ${exact.size} groups of exact copies (about ${humanBytes(exact.sumOf { it.reclaimableBytes })}; " +
+                    "the extra copies are pre-selected and the original is always kept) and $alike groups of " +
+                    "look-alikes - bursts, edits, RAW+JPEG - which are NOT selected."
             }
         } catch (e: CancellationException) {
             throw e

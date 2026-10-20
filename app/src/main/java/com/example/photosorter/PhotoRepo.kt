@@ -21,7 +21,21 @@ data class Photo(
     val latitude: Double?,
     val longitude: Double?,
     val sizeBytes: Long,
+    /** Folder inside shared storage, e.g. "DCIM/Camera/" or "Pictures/PhotoSorter/food/". */
+    val relPath: String = "",
+    /** When the file appeared in the library (ms). The original of exact copies was added first. */
+    val addedMs: Long = 0,
+    /** EXIF time-zone offset of the capture in minutes (+540 = UTC+09:00), null when unknown. */
+    val utcOffsetMin: Int? = null,
 )
+
+/** The app's own output folder - copies there are never treated as originals. */
+val Photo.isOwnCopy: Boolean get() = relPath.startsWith(Organizer.BASE + "/") || relPath.contains("/Pictures/PhotoSorter/")
+
+val Photo.isScreenshot: Boolean
+    get() = relPath.contains("Screenshot", ignoreCase = true) || title.startsWith("Screenshot", ignoreCase = true)
+
+val Photo.isWhatsApp: Boolean get() = relPath.contains("WhatsApp", ignoreCase = true)
 
 class PhotoRepo(private val resolver: ContentResolver) {
 
@@ -84,6 +98,7 @@ class PhotoRepo(private val resolver: ContentResolver) {
             MediaStore.Images.Media.WIDTH,
             MediaStore.Images.Media.HEIGHT,
             MediaStore.Images.Media.SIZE,
+            if (Build.VERSION.SDK_INT >= 29) MediaStore.MediaColumns.RELATIVE_PATH else MediaStore.MediaColumns.DATA,
         )
         val out = ArrayList<Photo>()
         val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US)
@@ -101,6 +116,9 @@ class PhotoRepo(private val resolver: ContentResolver) {
             val iW = c.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
             val iH = c.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
             val iSize = c.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE)
+            val iPath = c.getColumnIndexOrThrow(
+                if (Build.VERSION.SDK_INT >= 29) MediaStore.MediaColumns.RELATIVE_PATH else MediaStore.MediaColumns.DATA
+            )
             while (c.moveToNext() && out.size < maxRows) {
                 val id = c.getLong(iId)
                 // DATE_TAKEN is in milliseconds, DATE_ADDED in seconds
@@ -119,6 +137,8 @@ class PhotoRepo(private val resolver: ContentResolver) {
                         latitude = null,
                         longitude = null,
                         sizeBytes = c.getLong(iSize),
+                        relPath = c.getString(iPath) ?: "",
+                        addedMs = c.getLong(iAdded) * 1000L,
                     )
                 )
             }

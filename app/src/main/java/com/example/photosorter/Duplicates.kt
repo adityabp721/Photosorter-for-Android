@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 data class DupCluster(val exact: Boolean, val photos: List<Photo>) {
     val key: Long get() = photos.first().id
-    /** bytes reclaimable if we keep only the first (newest) photo */
+    /** bytes reclaimable if we keep only the first photo (the original / best one) */
     val reclaimableBytes: Long get() = photos.drop(1).sumOf { it.sizeBytes }
     /** e.g. a DNG next to its JPEG - people shooting RAW+JPEG want both. */
     val hasRaw: Boolean get() = photos.any { it.isRaw }
@@ -170,7 +170,7 @@ suspend fun findDuplicates(
     }
     progress(sameSize.size, sameSize.size, "hashing")
 
-    val exactClusters = byHash.values.filter { it.size >= 2 }.map { DupCluster(exact = true, photos = it.toSortedDescendingByDate()) }
+    val exactClusters = byHash.values.filter { it.size >= 2 }.map { DupCluster(exact = true, photos = it.originalFirst()) }
     val inExact = exactClusters.flatMap { it.photos }.mapTo(HashSet()) { it.id }
 
     // ---- pass 2: perceptual (re-saves, crops, mild edits) ----
@@ -223,15 +223,24 @@ suspend fun findDuplicates(
 
     val nearClusters = near
         .mapNotNull { members ->
-            if (members.size >= 2) DupCluster(false, members.toSortedDescendingByDate()) else null
+            if (members.size >= 2) DupCluster(false, members.bestFirst()) else null
         }
 
     (exactClusters + nearClusters)
         .sortedByDescending { it.reclaimableBytes }
 }
 
-private fun List<Photo>.toSortedDescendingByDate(): List<Photo> =
-    sortedByDescending { it.dateTakenMs }
+/**
+ * Exact copies: the ORIGINAL is kept - a file outside PhotoSorter's own folder, the one that entered
+ * the library first. (Keeping the "newest" once kept app-made copies and deleted camera originals,
+ * because the copies looked newer.)
+ */
+internal fun List<Photo>.originalFirst(): List<Photo> =
+    sortedWith(compareBy<Photo>({ it.isOwnCopy }, { it.addedMs }, { it.id }))
+
+/** Look-alikes (bursts, edits): keep the largest file outside PhotoSorter's folder - usually the best quality. */
+internal fun List<Photo>.bestFirst(): List<Photo> =
+    sortedWith(compareBy<Photo>({ it.isOwnCopy }, { -it.sizeBytes }, { -it.dateTakenMs }))
 
 /**
  * Deletes the given photos via MediaStore. On Android 14+ the system shows its own

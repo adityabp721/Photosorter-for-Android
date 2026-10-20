@@ -309,7 +309,7 @@ private fun FolderResult(folder: String, description: String) {
 
 fun engineLabel(model: AppModel, ctx: android.content.Context): String = when {
     model.mode == "cloud" -> "Cloud · ${model.modelName.ifBlank { "Gemini" }}"
-    VlmAi.isReady(ctx) -> "On-device · Qwen2.5-VL"
+    VlmAi.isReady(ctx) -> "On-device · ${VlmAi.MODEL_LABEL}"
     else -> "On-device · basic labels"
 }
 
@@ -362,20 +362,30 @@ fun AiSettingsSheet(model: AppModel, onDismiss: () -> Unit) {
             if (model.mode == "local") {
                 FeatureLine(Icons.Outlined.Lock, "Private & free", "Nothing leaves your phone. No key, works offline.")
                 FeatureLine(
-                    Icons.Outlined.AutoAwesome, "Qwen2.5-VL (~3.3 GB)",
-                    "Reads each photo and names places and subjects. About 30 s per photo. " +
+                    Icons.Outlined.AutoAwesome, "${VlmAi.MODEL_LABEL} (~1.6 GB, Apache 2.0)",
+                    "Reads each photo and recognizes subjects and places. " +
                         "Without it, a small built-in labeler gives simple categories.",
                 )
                 Text(VlmAi.statusText(ctx), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (!VlmAi.isReady(ctx)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { model.downloadVlmModel() }, enabled = !model.anyBusy) {
-                            Text(if (model.vlmBusy) "Downloading..." else "Download model (3.3 GB)")
+                            Text(if (model.vlmBusy) "Downloading..." else "Download model (1.6 GB)")
                         }
                         if (model.vlmBusy) TextButton(onClick = { model.stopDownload() }) { Text("Pause") }
                     }
                 }
                 StatusLine(model.vlmStatus)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Place names from GPS", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Looks up the country for photos with GPS, for trip names. Sends only the coordinates to Google.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = model.geocodeLocal, onCheckedChange = { model.geocodeLocal = it })
+                }
             } else {
                 FeatureLine(Icons.Outlined.Cloud, "Google Gemini", "Best captions; photos are uploaded (downscaled) to Google. ~1 request per photo.")
                 OutlinedTextField(

@@ -74,7 +74,7 @@ object LocalAi {
         val whenClause = if (dateLabel.isNotBlank() && dateLabel != "unknown") ", taken $dateLabel" else ""
         val gpsClause = if (hasGps) ", with GPS location" else ""
         val description = if (ofClause.isEmpty()) "Photo$whenClause$gpsClause" else "$ofClause$whenClause$gpsClause"
-        AiResult(folder, description.take(120))
+        AiResult(folder, description.take(120), SmartFolders.normalizeType(folder))
     }
 
     private suspend fun ensureModel(ctx: Context): ImageClassifier = loadMutex.withLock {

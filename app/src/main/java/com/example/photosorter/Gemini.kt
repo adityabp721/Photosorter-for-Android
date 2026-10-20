@@ -11,7 +11,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-data class AiResult(val folder: String, val description: String)
+/**
+ * One photo's AI answer. Sort tab: [folder] + [description]. Organize tab: also [type]
+ * (food, screenshots, travel...) and [place] (a country, only for clear travel photos).
+ */
+data class AiResult(val folder: String, val description: String, val type: String = "", val place: String = "")
 
 /** Rate limit / daily quota still exhausted after retries - the caller should stop the batch. */
 class QuotaExceededException(msg: String) : Exception(msg)
@@ -33,13 +37,11 @@ object Gemini {
     """.trimIndent()
 
     private val TRIP_CLASSIFY_PROMPT = """
-        You are sorting a personal photo gallery into folders per trip/place (like "japan-trip", "swiss-trip").
-        Look at the photo and its EXIF hints (date, GPS coordinates). If the GPS identifies a location, trust it over your visual guess.
-        Return ONLY a JSON object with exactly two keys:
-        - "folder":
-          * If the photo is from a trip/vacation/travel to a place: a 1-3 word lowercase kebab-case name of that trip. Use the country or main region + "-trip" (e.g. Tokyo and Kyoto photos are both "japan-trip"; Geneva and Zermatt are both "swiss-trip").
-          * If it is NOT a travel photo: exactly one of "food", "animals", "family", "work", "documents", "screenshots", "other".
-        - "description": one short sentence (at most 15 words) describing the photo. Use the EXIF hints below when helpful.
+        Classify this photo from a personal phone gallery. Use the EXIF hints below when helpful.
+        Return ONLY a JSON object with exactly three keys:
+        - "type": one of "travel", "food", "people", "pets", "nature", "city", "home", "shopping", "documents", "screenshot", "vehicles", "events", "art", "other".
+        - "place": the country where it was taken, ONLY if the photo clearly shows travel away from home (a famous landmark, foreign-language signs, a tourist site) or the GPS says so; otherwise "none".
+        - "description": one short sentence (at most 12 words) describing the photo.
     """.trimIndent()
 
     /** Per-photo trip classification: one call per photo -> {folder, description}. */
@@ -195,10 +197,14 @@ object Gemini {
         } catch (e: Exception) {
             throw IllegalStateException("Model did not return JSON: ${out.take(240)}")
         }
-        val folder = sanitizeFolder(json.optString("folder"))
         val desc = json.optString("description").trim()
         if (desc.isEmpty()) throw IllegalStateException("Model returned an empty description")
-        return AiResult(folder, desc)
+        val type = json.optString("type").trim()
+        if (type.isNotEmpty()) {
+            val t = SmartFolders.normalizeType(type)
+            return AiResult(t, desc, t, SmartFolders.normalizePlace(json.optString("place")))
+        }
+        return AiResult(sanitizeFolder(json.optString("folder")), desc)
     }
 
     private fun sanitizeFolder(raw: String): String {

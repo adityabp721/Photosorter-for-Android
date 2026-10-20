@@ -6,30 +6,38 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * On-device VLM (llama.cpp + Qwen2.5-VL-3B, ~3.3 GB of model files) for offline photo
- * classification. Model files live in <external-files>/llm/ - either pushed via adb or
- * downloaded in-app. Nothing leaves the phone.
+ * On-device VLM (llama.cpp + Qwen3-VL-2B, ~1.6 GB of model files, Apache 2.0 - usable in a
+ * commercial app) for offline photo classification. Model files live in <external-files>/llm/ -
+ * either pushed via adb or downloaded in-app. Nothing leaves the phone.
  */
 object VlmAi {
 
-    const val MODEL_NAME = "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"
-    const val MMPROJ_NAME = "mmproj-F16.gguf"
+    const val MODEL_LABEL = "Qwen3-VL-2B"
+    const val MODEL_NAME = "Qwen3VL-2B-Instruct-Q4_K_M.gguf"
+    const val MMPROJ_NAME = "mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf"
     const val MODEL_URL =
-        "https://huggingface.co/unsloth/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"
+        "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main/Qwen3VL-2B-Instruct-Q4_K_M.gguf"
     const val MMPROJ_URL =
-        "https://huggingface.co/unsloth/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-F16.gguf"
+        "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf"
+    /** Total download, for messages and the free-space check. */
+    const val DOWNLOAD_BYTES = 1_560_000_000L
 
-    /** Inner prompt sent to the model (wrapped in chat format by the native layer). */
+    /** Earlier model (Qwen Research License, non-commercial) - deleted once the new one is ready. */
+    private val LEGACY_FILES = listOf("Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf", "mmproj-F16.gguf")
+
+    /**
+     * Organize-tab prompt (wrapped in chat format by the native layer): the model reports WHAT the
+     * photo is and, only for clear travel photos, WHERE. Folders and trips are built from that in
+     * code (SmartFolders) - asking the model for folder names directly made it put everything
+     * into the example trip.
+     */
     const val TRIP_PROMPT =
-        "You are sorting a personal photo gallery into folders per trip/place (like japan-trip, swiss-trip). " +
-            "Look at the photo and its EXIF hints. If the GPS identifies a location, trust it over your visual guess.\n" +
-            "EXIF hints: %s\n" +
-            "If the photo is from a trip or travel to a place, the folder must be 1-3 word lowercase kebab-case " +
-            "using the country or main region plus -trip (Tokyo and Kyoto are both japan-trip). " +
-            "If it is NOT a travel photo, use exactly one of: food, animals, family, work, documents, screenshots, other.\n" +
-            "Reply with ONLY two lines:\n" +
-            "folder: <folder name>\n" +
-            "description: <one short sentence, max 12 words>"
+        "Classify this photo from a personal phone gallery. EXIF hints: %s\n" +
+            "Answer with ONLY three lines:\n" +
+            "type: one of travel, food, people, pets, nature, city, home, shopping, documents, screenshot, vehicles, events, art, other\n" +
+            "place: the country where it was taken, ONLY if the photo clearly shows travel away from home " +
+            "(a famous landmark, foreign-language signs, a tourist site) or the GPS says so; otherwise none\n" +
+            "description: one short sentence, max 12 words"
 
     /** Sort-tab prompt: topic folder + caption (no trip naming). */
     const val SORT_PROMPT =
@@ -60,20 +68,27 @@ object VlmAi {
 
     /** Model files present (with plausible sizes). */
     fun isReady(ctx: Context): Boolean =
-        modelFile(ctx).length() > 1_500_000_000L && mmprojFile(ctx).length() > 500_000_000L
+        modelFile(ctx).length() > 1_000_000_000L && mmprojFile(ctx).length() > 400_000_000L
+
+    /** Frees the old model's ~3.3 GB once the new model is in place. */
+    fun removeLegacyFiles(ctx: Context) {
+        if (!isReady(ctx)) return
+        LEGACY_FILES.forEach { runCatching { File(modelDir(ctx), it).delete() } }
+    }
 
     /** Human-readable status for the UI. */
     fun statusText(ctx: Context): String = when {
         !nativeAvailable -> "Local AI not available in this build"
-        loaded -> "Local AI model loaded (on-device, offline)"
-        isReady(ctx) -> "Local AI model found (${humanBytes(modelFile(ctx).length() + mmprojFile(ctx).length())}) - will load on first scan"
-        else -> "Local AI model missing (~3.3 GB). Download it below, or push to Android/data/com.example.photosorter/files/llm/"
+        loaded -> "$MODEL_LABEL loaded (on-device, offline)"
+        isReady(ctx) -> "$MODEL_LABEL ready (${humanBytes(modelFile(ctx).length() + mmprojFile(ctx).length())}) - loads on first scan"
+        else -> "$MODEL_LABEL not downloaded yet (~1.6 GB)."
     }
 
     /** Loads the model into memory (once). Returns false when files are missing. */
     suspend fun ensureLoaded(ctx: Context, onStatus: (String) -> Unit): Boolean {
         if (loaded) return true
         if (!nativeAvailable || !isReady(ctx)) return false
+        removeLegacyFiles(ctx)
         onStatus("Loading local AI model into memory - takes about a minute the first time...")
         val rc = withContext(Dispatchers.IO) {
             nativeInit(
@@ -117,11 +132,23 @@ object VlmAi {
         if (lines.isEmpty()) return null
         var folder = ""
         var desc = ""
-        for (l in lines) {
+        var type = ""
+        var place = ""
+        // the model sometimes puts several "key: value" pairs on one line
+        val parts = lines.flatMap { l -> l.split(Regex("(?i)(?=\\b(?:folder|description|type|place):)")).map { it.trim() } }
+            .filter { it.isNotEmpty() }
+        for (l in parts) {
+            val v = l.substringAfter(':', "").trim()
             when {
-                l.startsWith("folder:", ignoreCase = true) -> folder = l.removePrefix("folder:").trim()
-                l.startsWith("description:", ignoreCase = true) -> desc = l.removePrefix("description:").trim()
+                l.startsWith("folder:", ignoreCase = true) -> folder = v
+                l.startsWith("description:", ignoreCase = true) -> desc = v
+                l.startsWith("type:", ignoreCase = true) -> type = v
+                l.startsWith("place:", ignoreCase = true) -> place = v
             }
+        }
+        if (type.isNotEmpty()) {
+            val t = SmartFolders.normalizeType(type)
+            return AiResult(t, desc.ifEmpty { "Photo" }, t, SmartFolders.normalizePlace(place))
         }
         if (folder.isEmpty()) folder = lines[0]
         if (desc.isEmpty() && lines.size > 1) desc = lines[1]

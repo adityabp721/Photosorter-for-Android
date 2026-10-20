@@ -78,6 +78,33 @@ object ImageTools {
         return bmp
     }
 
+    /** GPS + capture time-zone offset from EXIF (either may be missing). */
+    class ExifInfo(val lat: Double?, val lon: Double?, val utcOffsetMin: Int?)
+
+    fun exifInfo(resolver: ContentResolver, uri: Uri, original: Boolean): ExifInfo {
+        return try {
+            val src = if (original && Build.VERSION.SDK_INT >= 29) MediaStore.setRequireOriginal(uri) else uri
+            val exif = resolver.openInputStream(src)?.use { ExifInterface(it) } ?: return ExifInfo(null, null, null)
+            var lat = parseGpsRationals(exif.getAttribute(ExifInterface.TAG_GPS_LATITUDE))
+            var lon = parseGpsRationals(exif.getAttribute(ExifInterface.TAG_GPS_LONGITUDE))
+            if (lat != null && exif.getAttribute(ExifInterface.TAG_GPS_LATITUDE_REF) == "S") lat = -lat
+            if (lon != null && exif.getAttribute(ExifInterface.TAG_GPS_LONGITUDE_REF) == "W") lon = -lon
+            val off = parseOffset(
+                exif.getAttribute(ExifInterface.TAG_OFFSET_TIME_ORIGINAL) ?: exif.getAttribute(ExifInterface.TAG_OFFSET_TIME)
+            )
+            ExifInfo(if (lon != null) lat else null, if (lat != null) lon else null, off)
+        } catch (e: Exception) {
+            ExifInfo(null, null, null)
+        }
+    }
+
+    /** "+09:00" / "-07:00" -> minutes east of UTC. */
+    fun parseOffset(raw: String?): Int? {
+        val m = Regex("^([+-])(\\d{2}):?(\\d{2})$").find(raw?.trim() ?: return null) ?: return null
+        val mins = m.groupValues[2].toInt() * 60 + m.groupValues[3].toInt()
+        return if (m.groupValues[1] == "-") -mins else mins
+    }
+
     /**
      * Reads GPS from the photo's EXIF (MediaStore has no reliable lat/lon columns for images).
      * Returns [latitude, longitude] or null when absent/unreadable.

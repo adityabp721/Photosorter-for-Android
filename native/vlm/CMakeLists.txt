@@ -17,3 +17,10 @@ target_include_directories(vlm-test PRIVATE
     ${LLAMA_SRC}/ggml/include
     ${LLAMA_SRC}/tools/mtmd)
 target_link_libraries(vlm-test PRIVATE llama mtmd)
+
+add_executable(compare-vlm compare_vlm.cpp)
+target_include_directories(compare-vlm PRIVATE
+    ${LLAMA_SRC}/include
+    ${LLAMA_SRC}/ggml/include
+    ${LLAMA_SRC}/tools/mtmd)
+target_link_libraries(compare-vlm PRIVATE llama mtmd)

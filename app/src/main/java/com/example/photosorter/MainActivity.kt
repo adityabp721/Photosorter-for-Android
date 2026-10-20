@@ -88,7 +88,7 @@ private data class Dest(val key: String, val label: String, val icon: ImageVecto
 
 private val DESTS = listOf(
     Dest("sort", "Sort", Icons.Outlined.AutoAwesome, Icons.Filled.AutoAwesome),
-    Dest("trips", "Trips", Icons.Outlined.Luggage, Icons.Filled.Luggage),
+    Dest("trips", "Organize", Icons.Outlined.Luggage, Icons.Filled.Luggage),
     Dest("dups", "Duplicates", Icons.Outlined.CleaningServices, Icons.Filled.CleaningServices),
 )
 
