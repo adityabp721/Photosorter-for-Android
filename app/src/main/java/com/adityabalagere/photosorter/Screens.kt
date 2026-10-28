@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -72,7 +70,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
 
-private val ListPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp)
 
 @Composable
 private fun ButtonIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
@@ -86,7 +83,12 @@ private fun ButtonIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
 @Composable
 fun SortScreen(model: AppModel, openSettings: () -> Unit) {
     val rows = model.rows
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    ScrollingList(floating = {
+        FilledTonalButton(onClick = { model.scan() }, enabled = !model.anyBusy) { Text("Load") }
+        Button(onClick = { model.runSort() }, enabled = !model.anyBusy && rows.any { it.state is RowState.Todo }) {
+            ButtonIcon(Icons.Outlined.AutoAwesome); Text("Organize")
+        }
+    }) {
         item(key = "controls") {
             SectionCard(Icons.Outlined.AutoAwesome, "Sort & describe", "Files copies into folders with a one-line caption") {
                 EngineChip(model, openSettings)
@@ -170,7 +172,16 @@ fun TripsScreen(model: AppModel, openSettings: () -> Unit) {
             dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
         )
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    ScrollingList(floating = {
+        FilledTonalButton(onClick = { model.scanTrips() }, enabled = !model.anyBusy) { Text("Scan") }
+        Button(
+            onClick = { confirm = true },
+            enabled = !model.anyBusy && model.trips.isNotEmpty() && model.pendingDelete == null,
+        ) {
+            ButtonIcon(if (model.tripMove) Icons.Outlined.DriveFileMove else Icons.Outlined.ContentCopy)
+            Text(if (model.tripMove) "Move" else "Copy")
+        }
+    }) {
         item(key = "controls") {
             SectionCard(Icons.Outlined.Luggage, "Organize", "Trips, food, screenshots, people and more") {
                 EngineChip(model, openSettings)
@@ -390,7 +401,16 @@ private fun DupsScreen(model: AppModel) {
         )
     }
     val clusters = model.clusters
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    ScrollingList(floating = {
+        FilledTonalButton(onClick = { model.scanDups() }, enabled = !model.anyBusy) { Text("Scan") }
+        if (model.selected.isNotEmpty()) {
+            Button(
+                onClick = { confirm = true },
+                enabled = !model.anyBusy && model.pendingDelete == null,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) { ButtonIcon(Icons.Outlined.DeleteOutline); Text("Trash ${model.selected.size}") }
+        }
+    }) {
         item(key = "controls") {
             SectionCard(Icons.Outlined.CleaningServices, "Duplicates", "Find copies and look-alikes to free up space") {
                 FilledTonalButton(onClick = { model.scanDups() }, enabled = !model.anyBusy) {
@@ -514,7 +534,16 @@ private fun BlurScreen(model: AppModel) {
             dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
         )
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = ListPadding, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    ScrollingList(floating = {
+        FilledTonalButton(onClick = { model.scanBlurry() }, enabled = !model.anyBusy) { Text("Scan") }
+        if (model.blurSelected.isNotEmpty()) {
+            Button(
+                onClick = { confirm = true },
+                enabled = !model.anyBusy && model.pendingDelete == null,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            ) { ButtonIcon(Icons.Outlined.DeleteOutline); Text("Trash ${model.blurSelected.size}") }
+        }
+    }) {
         item(key = "controls") {
             SectionCard(Icons.Outlined.BlurOn, "Blurry photos", "Out-of-focus, shaky and accidental shots") {
                 FilledTonalButton(onClick = { model.scanBlurry() }, enabled = !model.anyBusy) {
