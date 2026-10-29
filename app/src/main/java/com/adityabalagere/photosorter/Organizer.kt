@@ -342,17 +342,33 @@ object Organizer {
             val name = File(outPath).name
             val dir = outPath.removeSuffix("/$name")
             val u = querySharedFile(ctx.contentResolver, dir.removePrefix("$BASE/"), name)
-            if (u != null) {
-                runCatching {
-                    ctx.startActivity(Intent(Intent.ACTION_VIEW, u).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                }.onFailure {
-                    Toast.makeText(ctx, "No app found to open that copy", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                Toast.makeText(ctx, "Copy no longer found: $outPath", Toast.LENGTH_SHORT).show()
-            }
+            if (u != null) viewImage(ctx, u, ctx.contentResolver.getType(u))
+            else Toast.makeText(ctx, "Copy no longer found: $outPath", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(ctx, "Copy at: $outPath", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Opens an image in the gallery / any viewer. The MIME type is set explicitly (some galleries
+     * only match "image/..."), the task flag lets it start from a non-Activity context, and when no
+     * default viewer matches, the system chooser is tried before giving up.
+     */
+    fun viewImage(ctx: Context, uri: Uri, mime: String?) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime?.takeIf { it.startsWith("image/") } ?: "image/*")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (ctx !is android.app.Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val ok = runCatching { ctx.startActivity(intent) }.recoverCatching {
+            Log.w(TAG, "No default viewer for $uri", it)
+            val chooser = Intent.createChooser(intent, "Open with")
+            if (ctx !is android.app.Activity) chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            ctx.startActivity(chooser)
+        }
+        ok.onFailure {
+            Log.w(TAG, "Cannot open $uri", it)
+            Toast.makeText(ctx, "No app found to open the photo", Toast.LENGTH_SHORT).show()
         }
     }
 }

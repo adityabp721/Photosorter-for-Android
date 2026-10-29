@@ -14,8 +14,8 @@ android {
         minSdk = 26
         // Play requires recent target levels for new apps (Android 16 = API 36)
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.1.2"
+        versionCode = 7
+        versionName = "1.1.3"
         ndk {
             // the VLM native lib is only built for 64-bit (modern phones)
             abiFilters += listOf("arm64-v8a")

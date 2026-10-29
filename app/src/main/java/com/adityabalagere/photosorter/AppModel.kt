@@ -581,8 +581,9 @@ class AppModel(app: Context) {
         status = "Failed photos are queued again - press Organize to retry."
     }
 
-    fun openCopy(outPath: String) {
-        Organizer.openCopy(ctx, outPath)
+    /** `ui` = the screen's (Activity) context, so the gallery opens on top of the app. */
+    fun openCopy(ui: Context, outPath: String) {
+        Organizer.openCopy(ui, outPath)
     }
 
     // ---- trips: AI-scan each photo, file into per-trip folders ----

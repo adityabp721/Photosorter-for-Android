@@ -82,6 +82,7 @@ private fun ButtonIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SortScreen(model: AppModel, openSettings: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     val rows = model.rows
     ScrollingList(floating = {
         FilledTonalButton(onClick = { model.scan() }, enabled = !model.anyBusy) { Text("Load") }
@@ -122,7 +123,7 @@ fun SortScreen(model: AppModel, openSettings: () -> Unit) {
         }
         if (rows.isNotEmpty()) {
             item(key = "summary") { RowSummary(rows) }
-            items(rows, key = { it.photo.id }) { row -> PhotoRowCard(row, onOpen = { model.openCopy(it.outPath) }) }
+            items(rows, key = { it.photo.id }) { row -> PhotoRowCard(row, onOpen = { model.openCopy(ctx, it.outPath) }) }
         } else {
             item(key = "empty") {
                 EmptyState(Icons.Outlined.ImageSearch, "No photos loaded", "Press Load photos to pick up your newest pictures.")
@@ -151,6 +152,7 @@ private fun RowSummary(rows: List<Row>) {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TripsScreen(model: AppModel, openSettings: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     var confirm by remember { mutableStateOf(false) }
     var showPhotos by remember { mutableStateOf(false) }
     if (confirm) {
@@ -272,7 +274,7 @@ fun TripsScreen(model: AppModel, openSettings: () -> Unit) {
                 RowSummary(tripRows)
             }
             if (expanded) {
-                items(tripRows, key = { "r" + it.photo.id }) { row -> PhotoRowCard(row, onOpen = { model.openCopy(it.outPath) }) }
+                items(tripRows, key = { "r" + it.photo.id }) { row -> PhotoRowCard(row, onOpen = { model.openCopy(ctx, it.outPath) }) }
             }
         } else if (model.trips.isEmpty()) {
             item(key = "empty") {

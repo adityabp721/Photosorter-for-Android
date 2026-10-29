@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import java.text.SimpleDateFormat
+import java.util.SimpleTimeZone
+import java.util.TimeZone
 import java.util.Date
 import java.util.Locale
 import kotlin.math.min
@@ -32,14 +34,22 @@ class TripCluster(
         lastMs = maxOf(lastMs, p.dateTakenMs)
     }
 
+    /** "2026-09-12 → 2026-09-15", each end in the photo's own (EXIF) time zone when known. */
     val dateRangeLabel: String
-        get() {
-            if (photos.isEmpty()) return "unknown dates"
-            val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-            val a = fmt.format(Date(firstMs))
-            val b = fmt.format(Date(lastMs))
-            return if (a == b) a else "$a → $b"
+        get() = dateRangeLabel(TimeZone.getDefault())
+
+    fun dateRangeLabel(home: TimeZone): String {
+        val dated = photos.filter { it.dateTakenMs > 0 }
+        if (dated.isEmpty()) return "unknown dates"
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        fun label(p: Photo): String {
+            fmt.timeZone = p.utcOffsetMin?.let { SimpleTimeZone(it * 60_000, "EXIF") } ?: home
+            return fmt.format(Date(p.dateTakenMs))
         }
+        val a = label(dated.minBy { it.dateTakenMs })
+        val b = label(dated.maxBy { it.dateTakenMs })
+        return if (a == b) a else "$a → $b"
+    }
 }
 
 object Trips {

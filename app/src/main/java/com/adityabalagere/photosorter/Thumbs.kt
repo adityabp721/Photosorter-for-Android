@@ -184,9 +184,7 @@ fun DupPreviewDialog(
                 ) { Text(if (del) "Keep this" else "Delete this") }
                 if (onKeepOnly != null) Button(onClick = { onKeepOnly(p.id) }) { Text("Keep only this") }
                 OutlinedButton(onClick = {
-                    runCatching {
-                        ctx.startActivity(Intent(Intent.ACTION_VIEW, p.uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-                    }.onFailure { Toast.makeText(ctx, "No app found to open the photo", Toast.LENGTH_SHORT).show() }
+                    Organizer.viewImage(ctx, p.uri, p.mime)
                 }) { Text("Zoom", color = Color.White) }
             }
         }

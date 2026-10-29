@@ -112,4 +112,15 @@ class SmartFoldersTest {
         assertEquals(listOf(10L, 11L), listOf(copy, original).originalFirst().map { it.id })
         assertEquals(listOf(11L), DupCluster(true, listOf(copy, original).originalFirst()).defaultDelete.map { it.id })
     }
+
+    @Test fun tripDatesUseThePhotosOwnTimeZone() {
+        // 10:45 in Kyoto is still the previous evening in Los Angeles
+        val t = TripCluster(1).apply {
+            add(photo(1, "2026-09-14T10:45:00+09:00", 540))
+            add(photo(2, "2026-09-16T09:10:00+09:00", 540))
+        }
+        assertEquals("2026-09-14 → 2026-09-16", t.dateRangeLabel(la))
+        val home = TripCluster(2).apply { add(photo(3, "2026-10-19T23:30:00-07:00", null)) }
+        assertEquals("2026-10-19", home.dateRangeLabel(la))
+    }
 }
